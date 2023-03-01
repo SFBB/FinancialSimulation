@@ -19,21 +19,32 @@ class investment_info(ABC):
 
 class strategy_base(ABC):
     def __init__(self):
-        self.current = datetime.datetime.now()
-        self.start = datetime.datetime.now()
-        self.end = datetime.datetime.now()
-        self.interval = datetime.timedelta()
-        self.investment_info = investment_info()
+        self.__current = datetime.datetime.now()
+        self.__start = datetime.datetime.now()
+        self.__end = datetime.datetime.now()
+        self.__interval = datetime.timedelta()
+        self.__investments_info = {} # dict[str, investment_info]
+        self.__stock_names = [] # list[str]
 
-    def tick(self, stock_info: stock):
-        self.investment_info.update(stock_info)
+    def get_stock_names(self):
+        return self.__stock_names
+
+    def tick(self, stocks_info: dict[str, stock]):
+        for stock_name in self.__stock_names:
+            if stock_name not in stocks_info.keys():
+                # there is no such stock info in our simulation
+                continue
+            if stock_name not in self.__investments_info.keys():
+                # if we didn't have such stock name in our investments info, we add it.
+                self.__investments_info[stock_name] = investment_info()
+            self.__investments_info[stock_name].update(stocks_info[stock_name])
 
     def set_investment_info(self, customized_investment_info: investment_info):
         self.investment_info = customized_investment_info
 
     @abstractmethod
-    def make_choice(self) -> buy_or_sell_choice:
-        return buy_or_sell_choice.DoNothing
+    def make_choice(self) -> dict[str, buy_or_sell_choice]:
+        return {"None": buy_or_sell_choice.DoNothing}
 
     # Used to record our investment history.
     @abstractmethod
@@ -48,6 +59,7 @@ class strategy_base(ABC):
 class MyStrategy(strategy_base):
     def __init__(self):
         super(MyStrategy, self).__init__()
+        self.stock_names = ["GOOGL"]
         pass
 
     def make_choice(self) -> buy_or_sell_choice:
@@ -61,5 +73,4 @@ class MyStrategy(strategy_base):
 
 if __name__ == "__main__":
     MyStrategy_1 = MyStrategy()
-    print(MyStrategy_1.tick(stock()))
-    MyStrategy_1.investment_info.update(stock())
+    print(MyStrategy_1.tick({"GOOGL": stock("GOOGL")}))
