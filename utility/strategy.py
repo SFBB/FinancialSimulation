@@ -62,7 +62,7 @@ class MyStrategy(strategy_base):
         self.stock_names = ["GOOGL"]
         pass
 
-    def make_choice(self) -> buy_or_sell_choice:
+    def make_choice(self) -> dict[str, buy_or_sell_choice]:
         return super().make_choice()
 
     def log(self):
