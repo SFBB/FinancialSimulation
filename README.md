@@ -16,4 +16,4 @@ You need to make a simulation_kernel instance shown in `utitlity/simulation_kern
 Then you need to add your strategy to it.  
 For sure, you need to define your own trading strategy shown in `utitlity/strategy.py`.  
 
-Congrtulations! You can enjoy your trading right now!!!
+Congratulations! You can enjoy your trading right now!!!
