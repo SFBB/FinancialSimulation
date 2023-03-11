@@ -63,8 +63,8 @@ class investment_record(ABC):
             "stock_info": stock_info,
             "choice": choice,
             "number": number,
-            "asset_value": asset_value,
-            "delta_asset_value": delta_asset_value,
+            "money_value": asset_value,
+            "delta_money_value": delta_asset_value,
             "delta_number": delta_number
         })
         
@@ -154,7 +154,7 @@ class MyStrategy(strategy_base):
                 self.bet_target_price = x[-1] * trending_rate
                 self.bet_date = self.today_time
                 return {"GOOGL": (buy_or_sell_choice.Buy, (self.initial_money + self.changed_money) / x[-1])}
-        if today_price is not None and self.today_time - self.bet_date > datetime.timedelta(days=16) and self.bet_target_price < today_price:
+        if today_price is not None and self.today_time - self.bet_date > datetime.timedelta(days=60) and self.bet_target_price < today_price:
             return {"GOOGL": (buy_or_sell_choice.Sell, 100)}
         return {}
 
@@ -164,7 +164,7 @@ class MyStrategy(strategy_base):
         records = self.__investments_info__.get_records()
         with open("records.csv", "w", newline="") as file:
             writer = csv.writer(file)
-            writer.writerow(["time", "price", "choice", "asset_value", "number", "delta_asset_value", "delta_number"])
+            writer.writerow(["time", "price", "choice", "money_value", "number", "delta_money_value", "delta_number"])
             for record in records:
                 writer.writerow([record["time"], record["price"], int(record["choice"]), record["asset_value"], record["number"], record["delta_asset_value"], record["delta_number"]])
         print("Money change: {}, asset value change: {}".format(self.changed_money, self.changed_money + self.hold_stock_number["GOOGL"] * x[-1]))
