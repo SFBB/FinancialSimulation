@@ -1,7 +1,7 @@
 from enum import Enum
 import datetime
 from abc import ABC, abstractmethod
-from stock_util import stock
+from stock_util import stock_info
 
 
 
@@ -14,22 +14,18 @@ class investment_info(ABC):
     def __init__(self):
         pass
 
-    def update(self, stock_info: stock):
+    def update(self, stock_info: stock_info):
         pass
 
 class strategy_base(ABC):
     def __init__(self):
-        self.__current = datetime.datetime.now()
-        self.__start = datetime.datetime.now()
-        self.__end = datetime.datetime.now()
-        self.__interval = datetime.timedelta()
         self.__investments_info = {} # dict[str, investment_info]
         self.__stock_names = [] # list[str]
 
     def get_stock_names(self):
         return self.__stock_names
 
-    def tick(self, stocks_info: dict[str, stock]):
+    def tick(self, stocks_info: dict[str, stock_info], current_time: datetime.datetime):
         for stock_name in self.__stock_names:
             if stock_name not in stocks_info.keys():
                 # there is no such stock info in our simulation
@@ -73,4 +69,4 @@ class MyStrategy(strategy_base):
 
 if __name__ == "__main__":
     MyStrategy_1 = MyStrategy()
-    print(MyStrategy_1.tick({"GOOGL": stock("GOOGL")}))
+    # print(MyStrategy_1.tick({"GOOGL": stock_info("GOOGL")}))
