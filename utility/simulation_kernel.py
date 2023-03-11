@@ -44,7 +44,8 @@ class simulation_kernel():
             self.__current_time__ += self.__interval__
 
     def end(self):
-        pass
+        for strategy in self.__strategies__:
+            strategy.end()
 
 
 

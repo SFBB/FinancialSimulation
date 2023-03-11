@@ -64,6 +64,11 @@ class strategy_base(ABC):
             )
 
     @abstractmethod
+    def end(self):
+        pass
+
+
+    @abstractmethod
     def make_choice(self) -> dict[str, tuple[buy_or_sell_choice, float]]:
         return {}
 
