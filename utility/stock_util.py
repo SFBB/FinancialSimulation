@@ -35,6 +35,8 @@ class stock_info():
     def get_today_price(self, current_time: datetime.datetime) -> pd.DataFrame:
         return self.history_price_data.loc[self.history_price_data.index.get_level_values("date") <= current_time.date()]
 
+
+
 if __name__ == "__main__":
     si = stock_info("GOOGL", datetime.datetime(2012, 12, 12), datetime.datetime.now(), datetime.timedelta(days=1))
     si.update()
