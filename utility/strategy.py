@@ -166,7 +166,7 @@ class MyStrategy(strategy_base):
             writer = csv.writer(file)
             writer.writerow(["time", "price", "choice", "money_value", "number", "delta_money_value", "delta_number"])
             for record in records:
-                writer.writerow([record["time"], record["price"], int(record["choice"]), record["asset_value"], record["number"], record["delta_asset_value"], record["delta_number"]])
+                writer.writerow([record["time"], record["price"], int(record["choice"]), record["money_value"], record["number"], record["delta_money_value"], record["delta_number"]])
         print("Money change: {}, asset value change: {}".format(self.changed_money, self.changed_money + self.hold_stock_number["GOOGL"] * x[-1]))
 
 
