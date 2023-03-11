@@ -17,6 +17,7 @@ class simulation_kernel():
 
     def add_strategy(self, strategy: strategy_base):
         self.__strategies__.append(strategy)
+        self.initialize()
 
     def initialize(self):
         self.__collect_strategies_stock_names__()
@@ -41,6 +42,8 @@ class simulation_kernel():
                 strategy.tick(stock_infos, self.__current_time__)
             
             self.__current_time__ += self.__interval__
+
+
 
 if __name__ == "__main__":
     sk = simulation_kernel(datetime.datetime(2012, 12, 12), datetime.datetime.now(), datetime.timedelta(days=1))

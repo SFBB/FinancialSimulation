@@ -10,37 +10,46 @@ class buy_or_sell_choice(Enum):
     Sell = 1
     DoNothing = 2
 
-class investment_info(ABC):
+class investment_record(ABC):
     def __init__(self):
-        pass
+        self.records = []
 
-    def update(self, stock_info: stock_info):
+    def handle_choice(self, date_time: datetime.datetime, stock_info: stock_info, choice: buy_or_sell_choice, number: float):
+        price = stock_info.get_today_price(date_time).loc[date_time.date()].close
+        self.records.append({
+            "time": date_time,
+            "price": price,
+            "stock_info": stock_info,
+            "choice": choice,
+            "number": number,
+            "asset_value": price * number
+        })
+
+    def get_records(self):
+        return self.records.copy()
+
+    def get_statistics(self):
         pass
 
 class strategy_base(ABC):
     def __init__(self):
-        self.__investments_info = {} # dict[str, investment_info]
-        self.__stock_names = [] # list[str]
+        self.__investments_info__ = investment_record()
+        self.stock_names = [] # list[str]
+        self.latest_stocks_info = {}
+        self.today_time = datetime.datetime.now()
 
     def get_stock_names(self):
-        return self.__stock_names
+        return self.stock_names
 
-    def tick(self, stocks_info: dict[str, stock_info], current_time: datetime.datetime):
-        for stock_name in self.__stock_names:
-            if stock_name not in stocks_info.keys():
-                # there is no such stock info in our simulation
-                continue
-            if stock_name not in self.__investments_info.keys():
-                # if we didn't have such stock name in our investments info, we add it.
-                self.__investments_info[stock_name] = investment_info()
-            self.__investments_info[stock_name].update(stocks_info[stock_name])
-
-    def set_investment_info(self, customized_investment_info: investment_info):
-        self.investment_info = customized_investment_info
+    def tick(self, latest_stocks_info: dict[str, stock_info], current_time: datetime.datetime):
+        self.latest_stocks_info = latest_stocks_info
+        self.today_time = current_time
+        # we allow strategy to re-think every tick.
+        choice = self.make_choice()
 
     @abstractmethod
-    def make_choice(self) -> dict[str, buy_or_sell_choice]:
-        return {"None": buy_or_sell_choice.DoNothing}
+    def make_choice(self) -> dict[str, tuple[buy_or_sell_choice, float]]:
+        return {"None": (buy_or_sell_choice.DoNothing, 0)},
 
     # Used to record our investment history.
     @abstractmethod
@@ -58,7 +67,8 @@ class MyStrategy(strategy_base):
         self.stock_names = ["GOOGL"]
         pass
 
-    def make_choice(self) -> dict[str, buy_or_sell_choice]:
+    def make_choice(self) -> dict[str, tuple[buy_or_sell_choice, float]]:
+        print(self.today_time)
         return super().make_choice()
 
     def log(self):
@@ -66,6 +76,8 @@ class MyStrategy(strategy_base):
 
     def save(self):
         pass
+
+
 
 if __name__ == "__main__":
     MyStrategy_1 = MyStrategy()
