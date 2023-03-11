@@ -35,8 +35,8 @@ class math_util:
             # We increment index by 1 per sampling.
             chunk_size = 2 * chunk_size
 
-        plt.plot(np.log(n_series), np.log(rs_series))
-        plt.plot(np.arange(np.log(n_series)[0], np.log(n_series)[-1]), 0.5 * np.arange(np.log(n_series)[0], np.log(n_series)[-1]))
+        # plt.plot(np.log(n_series), np.log(rs_series))
+        # plt.plot(np.arange(np.log(n_series)[0], np.log(n_series)[-1]), 0.5 * np.arange(np.log(n_series)[0], np.log(n_series)[-1]))
         # 3. calculate the Hurst exponent.
         H, c = np.linalg.lstsq(
             a=np.vstack((np.log(n_series), np.ones(len(n_series)))).T,
@@ -44,7 +44,7 @@ class math_util:
             rcond=None
         )[0]
         # plt.plot(np.arange(np.log(n_series)[0], np.log(n_series)[-1]), H * np.arange(np.log(n_series)[0], np.log(n_series)[-1]) + c)
-        plt.show()
+        # plt.show()
 
         return H, c
 
