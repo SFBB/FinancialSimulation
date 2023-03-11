@@ -31,7 +31,6 @@ class investment_record(ABC):
             "number": number,
             "asset_value": price * number
         })
-        print(self.records[-1]["asset_value"])
 
     def get_records(self):
         return self.records.copy()

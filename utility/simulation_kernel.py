@@ -43,6 +43,9 @@ class simulation_kernel():
             
             self.__current_time__ += self.__interval__
 
+    def end(self):
+        pass
+
 
 
 if __name__ == "__main__":
@@ -50,3 +53,4 @@ if __name__ == "__main__":
     sk.add_strategy(MyStrategy())
     sk.initialize()
     sk.run()
+    sk.end()
