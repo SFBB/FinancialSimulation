@@ -1,4 +1,4 @@
-from strategy import strategy_base, buy_or_sell_choice, MyStrategy
+from strategy import strategy_base, MyStrategy
 from abc import ABC, abstractmethod
 from stock_util import stock_info
 import datetime
