@@ -17,6 +17,8 @@ class simulation_kernel():
         self.__end_time__ = end_time
         self.__current_time__ = self.__start_time__
         self.__interval__ = interval
+        for i, strategy in enumerate(self.__strategies__):
+            self.__strategies__[i] = strategy.__class__()
 
     def add_strategy(self, strategy: strategy_base):
         self.__strategies__.append(strategy)
@@ -60,6 +62,5 @@ if __name__ == "__main__":
     sk.end()
 
     sk.setup_duration(datetime.datetime(2022, 1, 1), datetime.datetime.now(), datetime.timedelta(days=1))
-    sk.initialize()
     sk.run()
     sk.end()
