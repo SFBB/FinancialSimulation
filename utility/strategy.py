@@ -1,8 +1,8 @@
 import datetime
 from abc import ABC, abstractmethod
-from stock_util import stock_info, buy_or_sell_choice, promise_buy, promise_sell, extract_close_price
-from economic_util import economic_info_base
-from math_util import math_util
+from .stock_util import stock_info, buy_or_sell_choice, promise_buy, promise_sell, extract_close_price
+from .economic_util import economic_info_base
+from .math_util import math_util
 import csv
 import numpy as np
 

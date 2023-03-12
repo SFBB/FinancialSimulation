@@ -1,7 +1,7 @@
-from strategy import strategy_base, MyStrategy
+from .strategy import strategy_base, MyStrategy
 from abc import ABC, abstractmethod
-from stock_util import stock_info
-from economic_util import economic_info_base
+from .stock_util import stock_info
+from .economic_util import economic_info_base
 import datetime
 
 
@@ -61,7 +61,7 @@ class simulation_kernel():
 
 
 if __name__ == "__main__":
-    sk = simulation_kernel(datetime.datetime(2012, 12, 12), datetime.datetime.now(), datetime.timedelta(days=1))
+    sk = simulation_kernel(datetime.datetime(2022, 1, 1), datetime.datetime.now(), datetime.timedelta(days=1))
     sk.add_strategy(MyStrategy())
     sk.initialize()
     sk.run()

@@ -1,5 +1,4 @@
 from yahooquery import Ticker
-import datetime
 from pandas import DataFrame as df
 import matplotlib.pyplot as plt
 from enum import Enum
