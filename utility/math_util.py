@@ -50,9 +50,9 @@ class math_util:
         return H, c
 
     @staticmethod
-    def calc_trending_rate_with_polyfit(x):
+    def calc_trending_rate_with_polyfit(x, n=3):
         x_i = np.linspace(0, 1, len(x))
-        z = np.polyfit(x_i, x, 3)
+        z = np.polyfit(x_i, x, n)
         p = np.poly1d(z)
         p_2 = np.polyder(p, 1)
         _ = plt.plot(x_i, x, '-', x_i, p(x_i), "--")
