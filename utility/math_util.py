@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import warnings
 
 
 
@@ -47,6 +48,36 @@ class math_util:
         # plt.show()
 
         return H, c
+
+    @staticmethod
+    def calc_trending_rate_with_polyfit(x):
+        x_i = np.linspace(0, 1, len(x))
+        z = np.polyfit(x_i, x, 3)
+        p = np.poly1d(z)
+        p_2 = np.polyder(p, 1)
+        _ = plt.plot(x_i, x, '-', x_i, p(x_i), "--")
+        # plt.show()
+        return p_2(1) / list(x)[-1]
+
+    @staticmethod
+    def calc_trending_rate_with_lstd(x):
+        x_i = np.linspace(0, 1, len(x))
+        k, c = np.linalg.lstsq(
+            a=np.vstack((x_i, np.ones(len(x_i)))).T,
+            b=x,
+            rcond=None
+        )[0]
+        return k / list(x)[-1]
+        
+    @staticmethod
+    def calc_trending_rate_with_simple_method(x):
+        # x_i = np.linspace(0, 1, len(x))
+        k = (list(x)[-1] - list(x)[0])
+        # p = np.poly1d([k, list(x)[0]])
+        # _ = plt.plot(x_i, x, '-', x_i, p(x_i), "--")
+        # plt.show()
+        return k / list(x)[-1]
+
 
 
 
