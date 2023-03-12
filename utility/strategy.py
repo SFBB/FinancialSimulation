@@ -2,6 +2,7 @@ from enum import Enum
 import datetime
 from abc import ABC, abstractmethod
 from stock_util import stock_info
+from economic_util import economic_info_base
 from math_util import math_util
 import csv
 
@@ -81,6 +82,7 @@ class strategy_base(ABC):
         self.__investments_info__ = investment_record()
         self.stock_names = [] # list[str]
         self.latest_stocks_info = {}
+        self.latest_economics_info = {}
         self.today_time = datetime.datetime.now()
 
         self.initial_money = 0
@@ -93,13 +95,14 @@ class strategy_base(ABC):
     def get_stock_names(self):
         return self.stock_names
 
-    def tick(self, latest_stocks_info: dict[str, stock_info], current_time: datetime.datetime):
+    def tick(self, latest_stocks_info: dict[str, stock_info], latest_economics_info: dict[str, economic_info_base], current_time: datetime.datetime):
         if not self.initialized:
             for ticket in self.stock_names:
                 self.hold_stock_number[ticket] = 0
             self.initialized = True
 
         self.latest_stocks_info = latest_stocks_info
+        self.latest_economics_info = latest_economics_info
         self.today_time = current_time
         # we allow strategy to re-think every tick.
         self.handle_choice(self.make_choice())
