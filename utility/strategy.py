@@ -1,17 +1,12 @@
 import datetime
 from abc import ABC, abstractmethod
-from stock_util import stock_info, buy_or_sell_choice
+from stock_util import stock_info, buy_or_sell_choice, promise_buy, promise_sell, extract_close_price
 from economic_util import economic_info_base
 from math_util import math_util
 import csv
 import numpy as np
 
 
-
-def extract_close_price(stock_info: stock_info, date_time: datetime.datetime):
-    if len(stock_info.get_today_price(date_time).close.values) > 0:
-        return stock_info.get_today_price(date_time).close.values[0]
-    return None
 
 class investment_record(ABC):
     def __init__(self):
@@ -27,21 +22,19 @@ class investment_record(ABC):
         delta_asset_value = asset_value
         delta_number = number
         if choice == buy_or_sell_choice.Buy:
-            if total_money == 0:
-                return 0, 0
             if asset_value > total_money:
                 asset_value = total_money
                 number = asset_value / price
             delta_asset_value = -asset_value
             delta_number = number
         elif choice == buy_or_sell_choice.Sell:
-            if total_number == 0:
-                return 0
             if number > total_number:
                 number = total_number
                 asset_value = price * number
             delta_asset_value = asset_value
             delta_number = -number
+        if number == 0:
+            return 0, 0
         self.records.append({
             "time": date_time,
             "price": price,
@@ -125,17 +118,23 @@ class MyStrategy(strategy_base):
         self.bet_price = 0
         self.bet_target_price = 0
         self.bet_date = datetime.datetime.now()
+        self.promises = [] # list[promise_base]
 
     def make_choice(self) -> dict[str, tuple[buy_or_sell_choice, float]]:
         today_price = extract_close_price(self.latest_stocks_info["GOOGL"], self.today_time)
         if today_price == None:
             return {}
         choice = {}
+        for promise in self.promises:
+            do_it, choice_ = promise.do_promise_or_not(self.today_time)
+            if do_it:
+                return {promise.ticket_name: (choice_, promise.number)}
         GOOGL_history_price = self.latest_stocks_info["GOOGL"].get_history_price(self.today_time)
         x = GOOGL_history_price.loc[GOOGL_history_price.index.get_level_values("date") > (self.today_time - datetime.timedelta(days=30)).date()].close.values
         if len(x) < 2:
             return {}
         hurst_exponent, c = math_util.rs_analysis(x, 2)
+        mean = np.average(list(x))
         if hurst_exponent > 0.6:
             trending_rate = (list(x)[-1] - list(x)[0]) / list(x)[0]
             if trending_rate > 0 and not self.has_bet:
@@ -143,12 +142,15 @@ class MyStrategy(strategy_base):
                 self.bet_price = x[-1]
                 self.bet_target_price = x[-1] * trending_rate
                 self.bet_date = self.today_time
-                choice = {"GOOGL": (buy_or_sell_choice.Buy, (self.initial_money + self.changed_money) / x[-1])}
+                choice = {"GOOGL": (buy_or_sell_choice.Buy, (100 + self.hold_stock_number["GOOGL"] * 2))}
+                self.promises.append(promise_sell(mean * 1.1, self.today_time + datetime.timedelta(days=60), self.latest_stocks_info["GOOGL"], "GOOGL", 100 + self.hold_stock_number["GOOGL"] * 2))
+                # choice = {"GOOGL": (buy_or_sell_choice.Buy, (self.initial_money + self.changed_money) / x[-1])}
         elif hurst_exponent < 0.4:
-            mean = np.mean(x)
-
-        if today_price is not None and self.today_time - self.bet_date > datetime.timedelta(days=60) and self.bet_target_price < today_price:
-            choice = {"GOOGL": (buy_or_sell_choice.Sell, 100)}
+            if today_price < mean * 0.9:
+                choice = {"GOOGL": (buy_or_sell_choice.Buy, 1000)}
+                self.promises.append(promise_sell(mean, self.today_time + datetime.timedelta(days=30), self.latest_stocks_info["GOOGL"], "GOOGL", 1000))
+            else:
+                self.promises.append(promise_buy(mean * 0.9, self.today_time + datetime.timedelta(days = 30), self.latest_stocks_info["GOOGL"], "GOOGL", 1000))
         return choice
 
     def end(self):

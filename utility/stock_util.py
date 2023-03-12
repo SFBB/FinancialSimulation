@@ -54,6 +54,11 @@ class stock_info():
     def get_history_price(self, current_time: datetime.datetime):
         return self.history_price_data.loc[self.history_price_data.index.get_level_values("date") <= current_time.date()]
 
+def extract_close_price(stock_info: stock_info, date_time: datetime.datetime):
+    if len(stock_info.get_today_price(date_time).close.values) > 0:
+        return stock_info.get_today_price(date_time).close.values[0]
+    return None
+
 class promise_base(ABC):
     def __init__(self, promise_price: float, promise_datetime: datetime.datetime, stock: stock_info, ticket_name: str, number: float):
         self.promise_price = promise_price
@@ -73,7 +78,7 @@ class promise_buy(promise_base):
     def do_promise_or_not(self, current_datetime: datetime.datetime) -> tuple[bool, buy_or_sell_choice]:
         if current_datetime > self.promise_datetime:
             return True, buy_or_sell_choice.Buy
-        today_price = self.stock.get_today_price(current_datetime)
+        today_price = extract_close_price(self.stock, current_datetime)
         if today_price == None:
             return False, buy_or_sell_choice.DoNothing
         elif today_price <= self.promise_price:
@@ -87,11 +92,12 @@ class promise_sell(promise_base):
     def do_promise_or_not(self, current_datetime: datetime.datetime) -> tuple[bool, buy_or_sell_choice]:
         if current_datetime > self.promise_datetime:
             return True, buy_or_sell_choice.Sell
-        today_price = self.stock.get_today_price(current_datetime)
+        today_price = extract_close_price(self.stock, current_datetime)
         if today_price == None:
             return False, buy_or_sell_choice.DoNothing
         elif today_price >= self.promise_price:
             return True, buy_or_sell_choice.Sell
+        return False, buy_or_sell_choice.DoNothing
 
 
 
