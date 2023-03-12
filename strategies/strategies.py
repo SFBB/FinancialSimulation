@@ -20,21 +20,23 @@ class GOOGLStrategy(strategy_base):
             return []
         choices = []
         GOOGL_history_price = self.latest_stocks_info["GOOGL"].get_history_price(self.today_time)
-        x = GOOGL_history_price.loc[GOOGL_history_price.index.get_level_values("date") > (self.today_time - datetime.timedelta(days=30)).date()].close.values
+        x = GOOGL_history_price.loc[GOOGL_history_price.index.get_level_values("date") > (self.today_time - datetime.timedelta(days=90)).date()].close.values
         if len(x) < 2:
             return choices
         hurst_exponent, c = math_util.rs_analysis(x, 2)
         mean = np.average(list(x))
         if hurst_exponent > 0.6:
             trending_rate = (list(x)[-1] - list(x)[0]) / list(x)[0]
-            if trending_rate > 0 and not self.has_bet:
+            if trending_rate > 0.1 and not self.has_bet:
+                # print(trending_rate, self.today_time)
                 # self.has_bet = True
                 self.bet_price = x[-1]
                 self.bet_target_price = x[-1] * trending_rate
                 self.bet_date = self.today_time
-                choices.append({"GOOGL": (buy_or_sell_choice.Buy, (100 + self.hold_stock_number["GOOGL"] * 2))})
+                number = np.clip(10000 - self.hold_stock_number["GOOGL"] * 0.5, 0, 10000)
+                choices.append({"GOOGL": (buy_or_sell_choice.Buy, number)})
                 if self.initial_money + self.changed_money > 0:
-                    self.new_promise(promise_sell(mean * 1.1, self.today_time + datetime.timedelta(days=60), self.latest_stocks_info["GOOGL"], "GOOGL", 100 + self.hold_stock_number["GOOGL"] * 2))
+                    self.new_promise(promise_sell(mean * 1.1, self.today_time + datetime.timedelta(days=16), self.latest_stocks_info["GOOGL"], "GOOGL", number))
                 # choice = {"GOOGL": (buy_or_sell_choice.Buy, (self.initial_money + self.changed_money) / x[-1])}
         elif hurst_exponent < 0.4:
             if today_price < mean * 0.9:
