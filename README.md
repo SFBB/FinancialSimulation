@@ -12,8 +12,7 @@ You can make your own strategy and choose the stock you want to invest. This pro
 - [x] ......
 
 ## How to use.
-You need to make a simulation_kernel instance shown in `utitlity/simulation_kernel.py`.  
-Then you need to add your strategy to it.  
-For sure, you need to define your own trading strategy shown in `utitlity/strategy.py`.  
+`main.py` provides a simple example of how to do simulation.  
+`strategies/strategies.py` provides examples about how to customize trading principles.  
 
 Congratulations! You can enjoy your trading right now!!!
