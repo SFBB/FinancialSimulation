@@ -25,7 +25,7 @@ class GOOGLStrategy(strategy_base):
             return choices
         hurst_exponent, c = math_util.rs_analysis(x, 2)
         mean = np.average(list(x))
-        if hurst_exponent > 0.6:
+        if hurst_exponent > 0.9 and hurst_exponent < 0.95:
             trending_rate = (list(x)[-1] - list(x)[0]) / list(x)[0]
             if trending_rate > 0.1 and not self.has_bet:
                 # print(trending_rate, self.today_time)
