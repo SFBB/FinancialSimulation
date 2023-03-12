@@ -67,6 +67,8 @@ class strategy_base(ABC):
 
         self.hold_stock_number = {}
 
+        self.promises = [] # list[promise_base]
+
         self.initialized = False
 
     def get_stock_names(self):
@@ -83,8 +85,21 @@ class strategy_base(ABC):
         self.today_time = current_time
         # we allow strategy to re-think every tick.
         choice_list = self.make_choice()
+        choice_list += self.handle_promises()
         for choice in choice_list:
             self.handle_choice(choice)
+
+    def handle_promises(self):
+        choice_list = []
+        promised_list = []
+        for promise in self.promises:
+            do_it, choice = promise.do_promise_or_not(self.today_time)
+            if do_it:
+                promised_list.append(promise)
+                choice_list.append({promise.ticket_name: (choice, promise.number)})
+        for promised in promised_list:
+            self.promises.remove(promised)
+        return choice_list
 
     def handle_choice(self, choice):
         for ticket in choice.keys():
@@ -101,6 +116,9 @@ class strategy_base(ABC):
                 if ticket not in self.hold_stock_number.keys():
                     self.hold_stock_number[ticket] = 0
                 self.hold_stock_number[ticket] += changed_number
+
+    def new_promise(self, promise):
+        self.promises.append(promise)
 
     @abstractmethod
     def end(self):
@@ -127,14 +145,6 @@ class MyStrategy(strategy_base):
         if today_price == None:
             return []
         choices = []
-        promised_list = []
-        for promise in self.promises:
-            do_it, choice_ = promise.do_promise_or_not(self.today_time)
-            if do_it:
-                promised_list.append(promise)
-                choices.append({promise.ticket_name: (choice_, promise.number)})
-        for promised in promised_list:
-            self.promises.remove(promised)
         GOOGL_history_price = self.latest_stocks_info["GOOGL"].get_history_price(self.today_time)
         x = GOOGL_history_price.loc[GOOGL_history_price.index.get_level_values("date") > (self.today_time - datetime.timedelta(days=30)).date()].close.values
         if len(x) < 2:
@@ -150,14 +160,14 @@ class MyStrategy(strategy_base):
                 self.bet_date = self.today_time
                 choices.append({"GOOGL": (buy_or_sell_choice.Buy, (100 + self.hold_stock_number["GOOGL"] * 2))})
                 if self.initial_money + self.changed_money > 0:
-                    self.promises.append(promise_sell(mean * 1.1, self.today_time + datetime.timedelta(days=60), self.latest_stocks_info["GOOGL"], "GOOGL", 100 + self.hold_stock_number["GOOGL"] * 2))
+                    self.new_promise(promise_sell(mean * 1.1, self.today_time + datetime.timedelta(days=60), self.latest_stocks_info["GOOGL"], "GOOGL", 100 + self.hold_stock_number["GOOGL"] * 2))
                 # choice = {"GOOGL": (buy_or_sell_choice.Buy, (self.initial_money + self.changed_money) / x[-1])}
         elif hurst_exponent < 0.4:
             if today_price < mean * 0.9:
-                choice = {"GOOGL": (buy_or_sell_choice.Buy, 1000)}
-                self.promises.append(promise_sell(mean, self.today_time + datetime.timedelta(days=30), self.latest_stocks_info["GOOGL"], "GOOGL", 1000))
+                choices.append({"GOOGL": (buy_or_sell_choice.Buy, 1000)})
+                self.new_promise(promise_sell(mean, self.today_time + datetime.timedelta(days=30), self.latest_stocks_info["GOOGL"], "GOOGL", 1000))
             else:
-                self.promises.append(promise_buy(mean * 0.9, self.today_time + datetime.timedelta(days = 30), self.latest_stocks_info["GOOGL"], "GOOGL", 1000))
+                self.new_promise(promise_buy(mean * 0.9, self.today_time + datetime.timedelta(days = 30), self.latest_stocks_info["GOOGL"], "GOOGL", 1000))
         return choices
 
     def end(self):
