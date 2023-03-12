@@ -45,7 +45,7 @@ class stock_info():
         if self.interval.days > 0:
             interval = "{}d".format(self.interval.days)
         elif self.interval.seconds > 0:
-            interval = "{}m".format(self.interval.seconds // 60)
+            interval = "{}h".format(self.interval.seconds // 60 // 60)
         self.history_price_data = self.stock.history("100y", interval, None, self.end_time)
 
     def get_today_price(self, current_time: datetime.datetime) -> pd.DataFrame:
