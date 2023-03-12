@@ -63,14 +63,14 @@ class promise_base(ABC):
         self.number = number
 
     @abstractmethod
-    def do_promise_or_not(self, current_datetime: datetime.datetime) -> tuple[bool, buy_or_sell_choice.values]:
+    def do_promise_or_not(self, current_datetime: datetime.datetime) -> tuple[bool, buy_or_sell_choice]:
         return False, buy_or_sell_choice.DoNothing
 
 class promise_buy(promise_base):
     def __init__(self, promise_price: float, promise_datetime: datetime.datetime, stock: stock_info, ticket_name: str, number: float):
         super(promise_buy, self).__init__(promise_price, promise_datetime, stock, ticket_name, number)
     
-    def do_promise_or_not(self, current_datetime: datetime.datetime) -> tuple[bool, buy_or_sell_choice.values]:
+    def do_promise_or_not(self, current_datetime: datetime.datetime) -> tuple[bool, buy_or_sell_choice]:
         if current_datetime > self.promise_datetime:
             return True, buy_or_sell_choice.Buy
         today_price = self.stock.get_today_price(current_datetime)
@@ -84,7 +84,7 @@ class promise_sell(promise_base):
     def __init__(self, promise_price: float, promise_datetime: datetime.datetime, stock: stock_info, ticket_name: str, number: float):
         super(promise_sell, self).__init__(promise_price, promise_datetime, stock, ticket_name, number)
     
-    def do_promise_or_not(self, current_datetime: datetime.datetime) -> tuple[bool, buy_or_sell_choice.values]:
+    def do_promise_or_not(self, current_datetime: datetime.datetime) -> tuple[bool, buy_or_sell_choice]:
         if current_datetime > self.promise_datetime:
             return True, buy_or_sell_choice.Sell
         today_price = self.stock.get_today_price(current_datetime)
