@@ -10,15 +10,10 @@ class simulation_kernel():
         self.__strategies__ = [] # list[strategy_base]
         self.__stocks_info__ = {} # dict[str, stock_info]
 
-        self.setup_duration(start_time, end_time, interval)
-
-    def setup_duration(self, start_time: datetime.datetime, end_time: datetime.datetime, interval: datetime.timedelta):
         self.__start_time__ = start_time
         self.__end_time__ = end_time
         self.__current_time__ = self.__start_time__
         self.__interval__ = interval
-        for i, strategy in enumerate(self.__strategies__):
-            self.__strategies__[i] = strategy.__class__()
 
     def add_strategy(self, strategy: strategy_base):
         self.__strategies__.append(strategy)
@@ -58,9 +53,5 @@ if __name__ == "__main__":
     sk = simulation_kernel(datetime.datetime(2012, 12, 12), datetime.datetime.now(), datetime.timedelta(days=1))
     sk.add_strategy(MyStrategy())
     sk.initialize()
-    sk.run()
-    sk.end()
-
-    sk.setup_duration(datetime.datetime(2022, 1, 1), datetime.datetime.now(), datetime.timedelta(days=1))
     sk.run()
     sk.end()
