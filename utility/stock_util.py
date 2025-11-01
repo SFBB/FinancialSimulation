@@ -3,6 +3,7 @@ import pandas as pd
 import datetime
 from enum import Enum
 from abc import ABC, abstractmethod
+import os
 
 
 
@@ -40,6 +41,31 @@ class stock_info():
         self.stock = stock(ticket_name)
         self.history_price_data = pd.DataFrame()
 
+    def __get_cache_path(self) -> str:
+        return "cache/{}_{}_{}_{}.pkl".format(self.ticket_name, self.start_time.strftime("%Y-%m-%d"), self.end_time.strftime("%Y-%m-%d"), self.interval.days)
+
+    def __has_cache(self):
+        return os.path.exists(self.__get_cache_path())
+
+    def __load_cache(self):
+        self.history_price_data = pd.read_pickle(self.__get_cache_path())
+
+    def __update_cache(self):
+        if not os.path.exists("cache"):
+            os.makedirs("cache")
+        self.history_price_data.to_pickle(self.__get_cache_path())
+
+    def initialize(self):
+        if self.__has_cache():
+            try:
+                self.__load_cache()
+            except Exception as e:
+                print(e)
+                self.update()
+        else:
+            self.update()
+
+    # update stock info
     def update(self):
         interval = "1d"
         if self.interval.days > 0:
@@ -47,6 +73,7 @@ class stock_info():
         elif self.interval.seconds > 0:
             interval = "{}h".format(self.interval.seconds // 60 // 60)
         self.history_price_data = self.stock.history("100y", interval, None, self.end_time)
+        self.__update_cache()
 
     def get_today_price(self, current_time: datetime.datetime) -> pd.DataFrame:
         return self.history_price_data.loc[self.history_price_data.index.get_level_values("date") == current_time.date()]
@@ -103,5 +130,5 @@ class promise_sell(promise_base):
 
 if __name__ == "__main__":
     si = stock_info("GOOGL", datetime.datetime(2012, 12, 12), datetime.datetime.now(), datetime.timedelta(days=1))
-    si.update()
+    si.initialize()
     print(si.get_today_price(datetime.datetime.now()))
