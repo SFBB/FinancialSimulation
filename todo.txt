@@ -1,0 +1,3 @@
+* delay transaction price simulation
+x pre loading and caching
+* output, plot, adapter

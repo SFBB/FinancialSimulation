@@ -89,6 +89,9 @@ class strategy_base(ABC):
         for choice in choice_list:
             self.handle_choice(choice)
 
+    def initialize(self):
+        pass
+
     def handle_promises(self):
         choice_list = []
         promised_list = []
