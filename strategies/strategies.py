@@ -270,24 +270,7 @@ class AlphabetFCFStrategy(strategy_base):
                     ]
                 )
 
-        stats = self.__investments_info__.get_statistics(self.initial_money)
-        
-        print(f"\n{'='*40}")
-        print(f"Strategy Report: {self.get_name()}")
-        print(f"{'='*40}")
-        if stats:
-            print(f"Period:            {stats.get('Start Date', 'N/A')} to {stats.get('End Date', 'N/A')}")
-            print(f"Duration:          {stats.get('Duration (Days)', 'N/A')} days")
-            print(f"Initial Capital:   ${self.initial_money:,.2f}")
-            print(f"Final Equity:      ${stats['Final Equity']:,.2f}")
-            print(f"Total Return:      {stats['Total Return'] * 100:.2f}%")
-            print(f"CAGR:              {stats['CAGR'] * 100:.2f}%")
-            print(f"Max Drawdown:      {stats['Max Drawdown'] * 100:.2f}%")
-            print(f"Sharpe Ratio:      {stats['Sharpe Ratio']:.2f}")
-            print(f"Total Trades:      {stats['Trades']}")
-        else:
-            print("No trades or insufficient data for statistics.")
-        print(f"{'='*40}\n")
+        self.print_performance_report()
         # daily_returns = self.__investments_info__.get_daily_returns()
         # if daily_returns:
         #     sharpe_ratio = stock_analysis.get_sharpe_ratio(pd.Series(daily_returns))

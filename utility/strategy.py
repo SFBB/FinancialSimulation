@@ -1,38 +1,100 @@
 import datetime
 from abc import ABC, abstractmethod
-from .stock_util import stock_info, buy_or_sell_choice, promise_buy, promise_sell, extract_close_price
+from .stock_util import stock_info, buy_or_sell_choice, promise_buy, promise_sell, extract_close_price, extract_volume, extract_open_price
 from .economic_util import economic_info_base
 from .math_util import math_util
 import csv
 import numpy as np
 import pandas as pd
+from dataclasses import dataclass
+from enum import Enum
 
+class Market(Enum):
+    US = "US"
+    CN = "CN"
+
+class ExecutionMode(Enum):
+    CLOSE_TO_CLOSE = "Close"       # Current: Buy at today's close (Optimistic)
+    NEXT_OPEN = "NextOpen"         # Realistic: Signal today, Buy tomorrow Open
+
+@dataclass
+class MarketConfig:
+    market_type: Market
+    commission_rate: float
+    min_commission: float
+    tax_rate: float # Stamp duty (usually only on sell)
+    settlement: str # 'T+0' or 'T+1'
+    slippage_rate: float = 0.001   # 0.1% price impact/spread
+    volume_limit_pct: float = 0.1  # Max 10% of daily volume allowed to trade
+    execution_mode: ExecutionMode = ExecutionMode.CLOSE_TO_CLOSE
+    
+    @staticmethod
+    def US_Market():
+        return MarketConfig(
+            market_type=Market.US, 
+            commission_rate=0.00025, 
+            min_commission=5.0, 
+            tax_rate=0.0, 
+            settlement='T+0',
+            slippage_rate=0.0005, # tighter slippage for US (0.05%)
+            volume_limit_pct=0.1,
+            execution_mode=ExecutionMode.CLOSE_TO_CLOSE
+        )
+        
+    @staticmethod
+    def CN_Market():
+        # A-Share: 0.025% commission (min 5), 0.05% Tax on Sell (Stamp Duty)
+        # Slippage: 0.2% (approx), Vol Limit: 10%
+        return MarketConfig(
+            market_type=Market.CN, 
+            commission_rate=0.00025, 
+            min_commission=5.0, 
+            tax_rate=0.0005, 
+            settlement='T+1',
+            slippage_rate=0.001, # 0.1% Slippage
+            volume_limit_pct=0.1, # Max 10% of daily volume
+            execution_mode=ExecutionMode.CLOSE_TO_CLOSE
+        )
 
 
 class investment_record(ABC):
-    def __init__(self):
+    def __init__(self, market_config: MarketConfig):
+        self.market_config = market_config
         self.records = []
         self.daily_equity = []  # List of dicts: {'time': datetime, 'equity': float}
-        self.r_comm = 0.00025 # 佣金率
-        self.r_tax = 0.0005 # 税率
-        self.min_comm = 5 # 最低佣金
 
     def record_daily_equity(self, date_time: datetime.datetime, equity: float):
         self.daily_equity.append({"time": date_time, "equity": equity})
 
-    def handle_choice(self, date_time: datetime.datetime, stock_info: stock_info, choice: buy_or_sell_choice, number: float, total_money: float, total_number: float) -> tuple[float, float]:
+    def handle_choice(self, date_time: datetime.datetime, stock_info: stock_info, choice: buy_or_sell_choice, number: float, total_money: float, total_number: float, force_price: float = None) -> tuple[float, float]:
         if choice == buy_or_sell_choice.DoNothing:
             return 0, 0
-        price = extract_close_price(stock_info, date_time)
-        if price is None:
+        
+        if force_price is not None:
+             raw_price = force_price
+        else:
+             raw_price = extract_close_price(stock_info, date_time)
+             
+        if raw_price is None:
             return 0, 0
+            
+        # Apply Slippage to Price
+        # Buy: Higher Price, Sell: Lower Price
+        if choice == buy_or_sell_choice.Buy:
+            price = raw_price * (1 + self.market_config.slippage_rate)
+        elif choice == buy_or_sell_choice.Sell:
+            price = raw_price * (1 - self.market_config.slippage_rate)
+        else:
+            price = raw_price
+
         asset_value = price * number
         delta_asset_value = asset_value
         delta_number = number
         if choice == buy_or_sell_choice.Buy:
             if asset_value > total_money:
+                # Recalculate max number based on slipped price
                 asset_value = total_money
-                number = asset_value / price
+                number = asset_value / price # adjusted number
             delta_asset_value = -asset_value
             delta_number = number
         elif choice == buy_or_sell_choice.Sell:
@@ -44,24 +106,30 @@ class investment_record(ABC):
         if number == 0:
             return 0, 0
         
-        # we calculate cost here
+        # Calculate Cost based on MarketConfig
         total_cost = 0
         if choice == buy_or_sell_choice.Buy:
-            total_cost = max(asset_value * self.r_comm, self.min_comm) + asset_value * self.r_tax
+            # Usually tax is 0 on Buy for both, commission applies
+            comm = max(asset_value * self.market_config.commission_rate, self.market_config.min_commission)
+            total_cost = comm
         elif choice == buy_or_sell_choice.Sell:
-            total_cost = max(asset_value * self.r_comm, self.min_comm)
+            comm = max(asset_value * self.market_config.commission_rate, self.market_config.min_commission)
+            tax = asset_value * self.market_config.tax_rate # Stamp Duty
+            total_cost = comm + tax
         
-        # Append record (unchanged logic)
+        # Append record
         self.records.append({
             "time": date_time,
-            "price": price,
+            "price": raw_price, # Record RAW price for reference
+            "execution_price": price, # Record Actual executed price
             "stock_info": stock_info,
             "choice": choice,
             "number": number,
             "money_value": asset_value,
             "delta_money_value": delta_asset_value - total_cost,
             "delta_number": delta_number,
-            "cost": total_cost
+            "cost": total_cost,
+            "slippage_cost": abs(price - raw_price) * number
         })
         
         return delta_asset_value - total_cost, delta_number
@@ -118,8 +186,9 @@ class investment_record(ABC):
         }
 
 class strategy_base(ABC):
-    def __init__(self):
-        self.__investments_info__ = investment_record()
+    def __init__(self, market_config: MarketConfig = MarketConfig.US_Market()):
+        self.market_config = market_config
+        self.__investments_info__ = investment_record(market_config)
         self.stock_names = [] # list[str]
         self.latest_stocks_info = {}
         self.latest_economics_info = {}
@@ -129,6 +198,8 @@ class strategy_base(ABC):
         self.changed_money = 0
 
         self.hold_stock_number = {}
+        self.frozen_stock = {} # {ticket: number} - for T+1 settlement
+        self.queued_orders = [] # list of dicts: {ticket, action, amount}
 
         self.promises = [] # list[promise_base]
 
@@ -141,16 +212,48 @@ class strategy_base(ABC):
         if not self.initialized:
             for ticket in self.stock_names:
                 self.hold_stock_number[ticket] = 0
+                self.frozen_stock[ticket] = 0
             self.initialized = True
 
         self.latest_stocks_info = latest_stocks_info
         self.latest_economics_info = latest_economics_info
         self.today_time = current_time
+        
+        # T+1 Settlement: Unfreeze stocks at the start of a new day
+        # Since tick represents a new decision point (usually daily), we clear frozen stocks here.
+        # This means anything bought "yesterday" (previous tick) is now available.
+        if self.market_config.settlement == 'T+1':
+            for ticket in self.stock_names:
+                self.frozen_stock[ticket] = 0
+
+        # Process Queued Orders (Next-Day Execution)
+        # We execute them using TODAY'S Open Price (which is the "Next Day" relative to when the signal was generated)
+        queued_to_process = self.queued_orders.copy()
+        self.queued_orders = [] # Clear queue
+        
+        for order in queued_to_process:
+            ticket = order['ticket']
+            action = order['action']
+            amount = order['amount']
+            
+            # Execute with OPEN price
+            # Note: We pass 'open_price' logic inside handle_choice by modifying it or handling it here.
+            # Ideally handle_choice should accept a price directly.
+            # I modified investment_record.handle_choice to accept force_price.
+            
+            if ticket in self.latest_stocks_info:
+                open_price = extract_open_price(self.latest_stocks_info[ticket], self.today_time)
+                if open_price is not None:
+                     self._execute_trade(ticket, action, amount, execution_price=open_price)
+                else:
+                     print(f"Skipping queued order for {ticket}: No Open Price for {self.today_time}")
+
         # we allow strategy to re-think every tick.
         choice_list = self.make_choice()
         choice_list += self.handle_promises()
         for choice in choice_list:
-            self.handle_choice(choice)
+             # Regular processing for current-day choices
+             self.handle_choice(choice)
             
         # Track Daily Equity
         current_equity = self.initial_money + self.changed_money
@@ -184,21 +287,60 @@ class strategy_base(ABC):
             self.promises.remove(promised)
         return choice_list
 
+    # Renaming this to _process_signal to avoid confusion, but keeping name for compatibility for now.
+    # This acts as the "Signal Receiver"
     def handle_choice(self, choice):
         for ticket in choice.keys():
+            action, amount = choice[ticket]
+            
+            if self.market_config.execution_mode == ExecutionMode.NEXT_OPEN:
+                 # Queue for next day
+                 self.queued_orders.append({'ticket': ticket, 'action': action, 'amount': amount})
+                 # print(f"Queued order for {ticket}: {action} {amount}")
+            else:
+                 # Execute immediately (Close-to-Close)
+                 self._execute_trade(ticket, action, amount)
+
+    def _execute_trade(self, ticket, action, amount, execution_price=None):
+            # T+1 Validation for Sell
+            if action == buy_or_sell_choice.Sell and self.market_config.settlement == 'T+1':
+                available = self.hold_stock_number.get(ticket, 0) - self.frozen_stock.get(ticket, 0)
+                if amount > available:
+                    # Cap sell amount to available shares
+                    print(f"Refusing to sell frozen shares for {ticket}. Requested: {amount}, Available: {available}")
+                    amount = available
+                    if amount <= 0:
+                        return # Skip this trade
+            
+            # Liquidity / Volume Limit Validation
+            if self.market_config.volume_limit_pct < 1.0:
+                daily_vol = extract_volume(self.latest_stocks_info[ticket], self.today_time)
+                if daily_vol > 0:
+                    max_shares = daily_vol * self.market_config.volume_limit_pct
+                    if amount > max_shares:
+                        print(f"Liquidity Crunch for {ticket}: Requested {amount} shares, but Day Volume was {daily_vol}. Capping at {max_shares:.2f} (10% limit).")
+                        amount = max_shares
+            
             changed_value, changed_number = self.__investments_info__.handle_choice(
                 self.today_time,
                 self.latest_stocks_info[ticket],
-                choice[ticket][0],
-                choice[ticket][1],
+                action,
+                amount,
                 self.initial_money + self.changed_money,
-                self.hold_stock_number[ticket]
+                self.hold_stock_number[ticket],
+                force_price=execution_price
             )
             self.changed_money += changed_value
-            if choice[ticket][0] != buy_or_sell_choice.DoNothing:
+            if action != buy_or_sell_choice.DoNothing:
                 if ticket not in self.hold_stock_number.keys():
                     self.hold_stock_number[ticket] = 0
                 self.hold_stock_number[ticket] += changed_number
+                
+                # T+1 Logic: Freeze bought shares
+                if action == buy_or_sell_choice.Buy and self.market_config.settlement == 'T+1':
+                     if ticket not in self.frozen_stock: self.frozen_stock[ticket] = 0
+                     self.frozen_stock[ticket] += changed_number
+
 
     def new_promise(self, promise):
         self.promises.append(promise)
@@ -211,61 +353,29 @@ class strategy_base(ABC):
     def make_choice(self) -> list[dict[str, tuple[buy_or_sell_choice, float]]]:
         return {}
 
-class MyStrategy(strategy_base):
-    def __init__(self):
-        super(MyStrategy, self).__init__()
-        self.stock_names = ["GOOGL"]
-        self.initial_money = 1000000
-
-        self.has_bet = False
-        self.bet_price = 0
-        self.bet_target_price = 0
-        self.bet_date = datetime.datetime.now()
-        self.promises = [] # list[promise_base]
-
-    def make_choice(self) -> list[dict[str, tuple[buy_or_sell_choice, float]]]:
-        today_price = extract_close_price(self.latest_stocks_info["GOOGL"], self.today_time)
-        if today_price == None:
-            return []
-        choices = []
-        GOOGL_history_price = self.latest_stocks_info["GOOGL"].get_history_price(self.today_time)
-        x = GOOGL_history_price.loc[GOOGL_history_price.index.get_level_values("date") > (self.today_time - datetime.timedelta(days=30)).date()].close.values
-        if len(x) < 2:
-            return choices
-        hurst_exponent, c = math_util.rs_analysis(x, 2)
-        mean = np.average(list(x))
-        if hurst_exponent > 0.6:
-            trending_rate = (list(x)[-1] - list(x)[0]) / list(x)[0]
-            if trending_rate > 0 and not self.has_bet:
-                # self.has_bet = True
-                self.bet_price = x[-1]
-                self.bet_target_price = x[-1] * trending_rate
-                self.bet_date = self.today_time
-                choices.append({"GOOGL": (buy_or_sell_choice.Buy, (100 + self.hold_stock_number["GOOGL"] * 2))})
-                if self.initial_money + self.changed_money > 0:
-                    self.new_promise(promise_sell(mean * 1.1, self.today_time + datetime.timedelta(days=60), self.latest_stocks_info["GOOGL"], "GOOGL", 100 + self.hold_stock_number["GOOGL"] * 2))
-                # choice = {"GOOGL": (buy_or_sell_choice.Buy, (self.initial_money + self.changed_money) / x[-1])}
-        elif hurst_exponent < 0.4:
-            if today_price < mean * 0.9:
-                choices.append({"GOOGL": (buy_or_sell_choice.Buy, 1000)})
-                self.new_promise(promise_sell(mean, self.today_time + datetime.timedelta(days=30), self.latest_stocks_info["GOOGL"], "GOOGL", 1000))
-            else:
-                self.new_promise(promise_buy(mean * 0.9, self.today_time + datetime.timedelta(days = 30), self.latest_stocks_info["GOOGL"], "GOOGL", 1000))
-        return choices
-
-    def end(self):
-        GOOGL_history_price = self.latest_stocks_info["GOOGL"].get_history_price(self.today_time)
-        x = GOOGL_history_price.loc[GOOGL_history_price.index.get_level_values("date") > (self.today_time - datetime.timedelta(days=30)).date()].close.values
-        records = self.__investments_info__.get_records()
-        with open("records.csv", "w", newline="") as file:
-            writer = csv.writer(file)
-            writer.writerow(["time", "price", "choice", "money_value", "number", "delta_money_value", "delta_number"])
-            for record in records:
-                writer.writerow([record["time"], record["price"], int(record["choice"]), record["money_value"], record["number"], record["delta_money_value"], record["delta_number"]])
-        print("Money change: {}, asset value change: {}".format(self.changed_money, self.changed_money + self.hold_stock_number["GOOGL"] * x[-1]))
-
-
-
-if __name__ == "__main__":
-    MyStrategy_1 = MyStrategy()
-    # print(MyStrategy_1.tick({"GOOGL": stock_info("GOOGL")}))
+    def print_performance_report(self):
+        stats = self.__investments_info__.get_statistics(self.initial_money)
+        
+        print(f"\n{'='*40}")
+        # Try to get strategy name if implemented, else use class name
+        name = self.get_name() if hasattr(self, 'get_name') else self.__class__.__name__
+        print(f"Strategy Report: {name}")
+        
+        # Market Info
+        mkt_type = "US (T+0)" if self.market_config.market_type == Market.US else "A-Shares (CN) [T+1 Settlement]"
+        print(f"Market: {mkt_type}")
+        print(f"{'='*40}")
+        
+        if stats:
+            print(f"Period:            {stats.get('Start Date', 'N/A')} to {stats.get('End Date', 'N/A')}")
+            print(f"Duration:          {stats.get('Duration (Days)', 'N/A')} days")
+            print(f"Initial Capital:   ${self.initial_money:,.2f}")
+            print(f"Final Equity:      ${stats['Final Equity']:,.2f}")
+            print(f"Total Return:      {stats['Total Return'] * 100:.2f}%")
+            print(f"CAGR:              {stats['CAGR'] * 100:.2f}%")
+            print(f"Max Drawdown:      {stats['Max Drawdown'] * 100:.2f}%")
+            print(f"Sharpe Ratio:      {stats['Sharpe Ratio']:.2f}")
+            print(f"Total Trades:      {stats['Trades']}")
+        else:
+            print("No trades or insufficient data for statistics.")
+        print(f"{'='*40}\n")

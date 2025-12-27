@@ -1,5 +1,5 @@
 import numpy as np
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import warnings
 
 
@@ -55,7 +55,7 @@ class math_util:
         z = np.polyfit(x_i, x, n)
         p = np.poly1d(z)
         p_2 = np.polyder(p, 1)
-        _ = plt.plot(x_i, x, '-', x_i, p(x_i), "--")
+        # _ = plt.plot(x_i, x, '-', x_i, p(x_i), "--")
         # plt.show()
         return p_2(1) / list(x)[-1]
 

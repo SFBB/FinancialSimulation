@@ -135,6 +135,25 @@ def extract_close_price(stock_info: stock_info, date_time: datetime.datetime):
     return None
 
 
+def extract_open_price(stock_info: stock_info, date_time: datetime.datetime):
+    if len(stock_info.get_today_price(date_time).close.values) > 0:
+        df = stock_info.get_today_price(date_time)
+        if 'open' in df.columns:
+            return df['open'].values[0]
+        # Fallback to close if no open (unlikely)
+        return df['close'].values[0]
+    return None
+
+
+def extract_volume(stock_info: stock_info, date_time: datetime.datetime):
+    if len(stock_info.get_today_price(date_time).close.values) > 0:
+        # Check if 'volume' column exists
+        df = stock_info.get_today_price(date_time)
+        if 'volume' in df.columns:
+            return df['volume'].values[0]
+    return 0
+
+
 class promise_base(ABC):
     def __init__(
         self,
