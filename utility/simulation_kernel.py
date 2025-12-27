@@ -24,7 +24,7 @@ class simulation_kernel():
         self.__collect_strategies_stock_names__()
 
         # loading stock data.
-        for _, stock in self.__stocks_info__:
+        for _, stock in self.__stocks_info__.items():
             stock.initialize()
 
         # loading strategy data.

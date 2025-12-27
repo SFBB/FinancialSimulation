@@ -5,12 +5,20 @@ from .economic_util import economic_info_base
 from .math_util import math_util
 import csv
 import numpy as np
+import pandas as pd
 
 
 
 class investment_record(ABC):
     def __init__(self):
         self.records = []
+        self.daily_equity = []  # List of dicts: {'time': datetime, 'equity': float}
+        self.r_comm = 0.00025 # 佣金率
+        self.r_tax = 0.0005 # 税率
+        self.min_comm = 5 # 最低佣金
+
+    def record_daily_equity(self, date_time: datetime.datetime, equity: float):
+        self.daily_equity.append({"time": date_time, "equity": equity})
 
     def handle_choice(self, date_time: datetime.datetime, stock_info: stock_info, choice: buy_or_sell_choice, number: float, total_money: float, total_number: float) -> tuple[float, float]:
         if choice == buy_or_sell_choice.DoNothing:
@@ -35,6 +43,15 @@ class investment_record(ABC):
             delta_number = -number
         if number == 0:
             return 0, 0
+        
+        # we calculate cost here
+        total_cost = 0
+        if choice == buy_or_sell_choice.Buy:
+            total_cost = max(asset_value * self.r_comm, self.min_comm) + asset_value * self.r_tax
+        elif choice == buy_or_sell_choice.Sell:
+            total_cost = max(asset_value * self.r_comm, self.min_comm)
+        
+        # Append record (unchanged logic)
         self.records.append({
             "time": date_time,
             "price": price,
@@ -42,17 +59,63 @@ class investment_record(ABC):
             "choice": choice,
             "number": number,
             "money_value": asset_value,
-            "delta_money_value": delta_asset_value,
-            "delta_number": delta_number
+            "delta_money_value": delta_asset_value - total_cost,
+            "delta_number": delta_number,
+            "cost": total_cost
         })
         
-        return delta_asset_value, delta_number
+        return delta_asset_value - total_cost, delta_number
 
     def get_records(self):
         return self.records.copy()
 
-    def get_statistics(self):
-        pass
+    def get_statistics(self, initial_capital, risk_free_rate=0.0):
+        if not self.daily_equity:
+            return {}
+        
+        df = pd.DataFrame(self.daily_equity)
+        if df.empty:
+             return {}
+        df.set_index("time", inplace=True)
+        # Sort index to ensure chronological order
+        df.sort_index(inplace=True)
+        
+        final_equity = df["equity"].iloc[-1]
+        total_return = (final_equity - initial_capital) / initial_capital
+        
+        # Drawdown
+        rolling_max = df["equity"].cummax()
+        drawdown = (df["equity"] - rolling_max) / rolling_max
+        max_drawdown = drawdown.min()
+        
+        # CAGR (Annualized Return)
+        duration_days = (df.index[-1] - df.index[0]).days
+        if duration_days > 0:
+            cagr = (final_equity / initial_capital) ** (365 / duration_days) - 1
+        else:
+            cagr = 0
+            
+        # Sharpe Ratio (Daily Returns)
+        df["daily_return"] = df["equity"].pct_change().fillna(0)
+        mean_return = df["daily_return"].mean()
+        std_return = df["daily_return"].std()
+        
+        # Annualized Sharpe (assuming 252 trading days)
+        sharpe_ratio = 0
+        if std_return > 0:
+            sharpe_ratio = (mean_return - risk_free_rate/252) / std_return * np.sqrt(252)
+            
+        return {
+            "Start Date": df.index[0].strftime("%Y-%m-%d"),
+            "End Date": df.index[-1].strftime("%Y-%m-%d"),
+            "Duration (Days)": duration_days,
+            "Final Equity": final_equity,
+            "Total Return": total_return,
+            "CAGR": cagr,
+            "Max Drawdown": max_drawdown,
+            "Sharpe Ratio": sharpe_ratio,
+            "Trades": len(self.records)
+        }
 
 class strategy_base(ABC):
     def __init__(self):
@@ -88,6 +151,23 @@ class strategy_base(ABC):
         choice_list += self.handle_promises()
         for choice in choice_list:
             self.handle_choice(choice)
+            
+        # Track Daily Equity
+        current_equity = self.initial_money + self.changed_money
+        all_prices_valid = True
+        for ticket in self.stock_names:
+            if ticket in self.latest_stocks_info:
+                price = extract_close_price(self.latest_stocks_info[ticket], self.today_time)
+                if price is not None:
+                    current_equity += self.hold_stock_number.get(ticket, 0) * price
+                else:
+                    # If any stock price is missing (e.g. holiday), skip recording equity for this day 
+                    # to avoid fake drawdowns.
+                    all_prices_valid = False
+                    break
+        
+        if all_prices_valid:
+            self.__investments_info__.record_daily_equity(self.today_time, current_equity)
 
     def initialize(self):
         pass

@@ -4,6 +4,10 @@ import matplotlib.pyplot as plt
 from enum import Enum
 
 
+def get_moving_average(data, window):
+    return data.rolling(window=window).mean()
+
+
 
 class Stock_Judgement(Enum):
     Trending = 0

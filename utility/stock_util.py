@@ -1,17 +1,17 @@
-from yahooquery import Ticker
-import pandas as pd
 import datetime
-from enum import Enum
-from abc import ABC, abstractmethod
 import os
+from abc import ABC, abstractmethod
+from enum import Enum
 
+import pandas as pd
+from yahooquery import Ticker
 
 
 class buy_or_sell_choice(Enum):
     Buy = 0, "Buy"
     Sell = 1, "Sell"
     DoNothing = 2, "DoNothing"
-    
+
     def __new__(cls, value, name):
         member = object.__new__(cls)
         member._value_ = value
@@ -20,6 +20,7 @@ class buy_or_sell_choice(Enum):
 
     def __int__(self):
         return self.value
+
 
 class stock(Ticker):
     def __init__(self, symbols, **kwargs):
@@ -32,8 +33,15 @@ class stock(Ticker):
     def current_judgement(self):
         pass
 
-class stock_info():
-    def __init__(self, ticket_name, start_time: datetime.datetime, end_time: datetime.datetime, interval: datetime.timedelta):
+
+class stock_info:
+    def __init__(
+        self,
+        ticket_name,
+        start_time: datetime.datetime,
+        end_time: datetime.datetime,
+        interval: datetime.timedelta,
+    ):
         self.ticket_name = ticket_name
         self.start_time = start_time
         self.end_time = end_time
@@ -42,13 +50,40 @@ class stock_info():
         self.history_price_data = pd.DataFrame()
 
     def __get_cache_path(self) -> str:
-        return "cache/{}_{}_{}_{}.pkl".format(self.ticket_name, self.start_time.strftime("%Y-%m-%d"), self.end_time.strftime("%Y-%m-%d"), self.interval.days)
+        return "cache/{}_{}_{}_{}.pkl".format(
+            self.ticket_name,
+            self.start_time.strftime("%Y-%m-%d"),
+            self.end_time.strftime("%Y-%m-%d"),
+            self.interval.days,
+        )
 
     def __has_cache(self):
         return os.path.exists(self.__get_cache_path())
 
+    def __normalize_data(self):
+        if self.history_price_data.empty:
+            return
+        
+        # Reset index to handle multi-index easily
+        df = self.history_price_data.reset_index()
+        if "date" in df.columns:
+            # Convert to datetime, normalize to remove time component (midnight)
+            # using kwarg 'utc=True' to handle mixed timezones if present, then tz_convert(None) to make naive
+            # or just to_datetime if they are compatible. 
+            # Given the user log showed a timezone, separate handling might be safer.
+            # But simple pd.to_datetime often handles mixed formats well.
+            # Let's use flexible parsing with format='mixed' to handle "2020-01-01" vs "2020-01-02 10:00-05:00".
+            df["date"] = pd.to_datetime(df["date"], utc=True, format="mixed").dt.tz_convert(None).dt.normalize()
+            
+        if "symbol" in df.columns and "date" in df.columns:
+            self.history_price_data = df.set_index(["symbol", "date"])
+        else:
+             # Fallback if structure is different
+            self.history_price_data = df.set_index("date") if "date" in df.columns else df
+
     def __load_cache(self):
         self.history_price_data = pd.read_pickle(self.__get_cache_path())
+        self.__normalize_data()
 
     def __update_cache(self):
         if not os.path.exists("cache"):
@@ -58,6 +93,7 @@ class stock_info():
     def initialize(self):
         if self.__has_cache():
             try:
+                print("load cache")
                 self.__load_cache()
             except Exception as e:
                 print(e)
@@ -72,22 +108,42 @@ class stock_info():
             interval = "{}d".format(self.interval.days)
         elif self.interval.seconds > 0:
             interval = "{}h".format(self.interval.seconds // 60 // 60)
-        self.history_price_data = self.stock.history("100y", interval, None, self.end_time)
+        self.history_price_data = self.stock.history(
+            "100y", interval, None, self.end_time
+        )
+        self.__normalize_data()
         self.__update_cache()
 
     def get_today_price(self, current_time: datetime.datetime) -> pd.DataFrame:
-        return self.history_price_data.loc[self.history_price_data.index.get_level_values("date") == current_time.date()]
+        target_date = pd.Timestamp(current_time.date())
+        return self.history_price_data.loc[
+            self.history_price_data.index.get_level_values("date")
+            == target_date
+        ]
 
     def get_history_price(self, current_time: datetime.datetime):
-        return self.history_price_data.loc[self.history_price_data.index.get_level_values("date") <= current_time.date()]
+        target_date = pd.Timestamp(current_time.date())
+        return self.history_price_data.loc[
+            self.history_price_data.index.get_level_values("date")
+            <= target_date
+        ]
+
 
 def extract_close_price(stock_info: stock_info, date_time: datetime.datetime):
     if len(stock_info.get_today_price(date_time).close.values) > 0:
         return stock_info.get_today_price(date_time).close.values[0]
     return None
 
+
 class promise_base(ABC):
-    def __init__(self, promise_price: float, promise_datetime: datetime.datetime, stock: stock_info, ticket_name: str, number: float):
+    def __init__(
+        self,
+        promise_price: float,
+        promise_datetime: datetime.datetime,
+        stock: stock_info,
+        ticket_name: str,
+        number: float,
+    ):
         self.promise_price = promise_price
         self.promise_datetime = promise_datetime
         self.stock = stock
@@ -95,14 +151,28 @@ class promise_base(ABC):
         self.number = number
 
     @abstractmethod
-    def do_promise_or_not(self, current_datetime: datetime.datetime) -> tuple[bool, buy_or_sell_choice]:
+    def do_promise_or_not(
+        self, current_datetime: datetime.datetime
+    ) -> tuple[bool, buy_or_sell_choice]:
         return False, buy_or_sell_choice.DoNothing
 
+
 class promise_buy(promise_base):
-    def __init__(self, promise_price: float, promise_datetime: datetime.datetime, stock: stock_info, ticket_name: str, number: float):
-        super(promise_buy, self).__init__(promise_price, promise_datetime, stock, ticket_name, number)
-    
-    def do_promise_or_not(self, current_datetime: datetime.datetime) -> tuple[bool, buy_or_sell_choice]:
+    def __init__(
+        self,
+        promise_price: float,
+        promise_datetime: datetime.datetime,
+        stock: stock_info,
+        ticket_name: str,
+        number: float,
+    ):
+        super(promise_buy, self).__init__(
+            promise_price, promise_datetime, stock, ticket_name, number
+        )
+
+    def do_promise_or_not(
+        self, current_datetime: datetime.datetime
+    ) -> tuple[bool, buy_or_sell_choice]:
         if current_datetime > self.promise_datetime:
             return True, buy_or_sell_choice.Buy
         today_price = extract_close_price(self.stock, current_datetime)
@@ -112,11 +182,23 @@ class promise_buy(promise_base):
             return True, buy_or_sell_choice.Buy
         return False, buy_or_sell_choice.DoNothing
 
+
 class promise_sell(promise_base):
-    def __init__(self, promise_price: float, promise_datetime: datetime.datetime, stock: stock_info, ticket_name: str, number: float):
-        super(promise_sell, self).__init__(promise_price, promise_datetime, stock, ticket_name, number)
-    
-    def do_promise_or_not(self, current_datetime: datetime.datetime) -> tuple[bool, buy_or_sell_choice]:
+    def __init__(
+        self,
+        promise_price: float,
+        promise_datetime: datetime.datetime,
+        stock: stock_info,
+        ticket_name: str,
+        number: float,
+    ):
+        super(promise_sell, self).__init__(
+            promise_price, promise_datetime, stock, ticket_name, number
+        )
+
+    def do_promise_or_not(
+        self, current_datetime: datetime.datetime
+    ) -> tuple[bool, buy_or_sell_choice]:
         if current_datetime > self.promise_datetime:
             return True, buy_or_sell_choice.Sell
         today_price = extract_close_price(self.stock, current_datetime)
@@ -127,8 +209,12 @@ class promise_sell(promise_base):
         return False, buy_or_sell_choice.DoNothing
 
 
-
 if __name__ == "__main__":
-    si = stock_info("GOOGL", datetime.datetime(2012, 12, 12), datetime.datetime.now(), datetime.timedelta(days=1))
+    si = stock_info(
+        "GOOGL",
+        datetime.datetime(2012, 12, 12),
+        datetime.datetime.now(),
+        datetime.timedelta(days=1),
+    )
     si.initialize()
     print(si.get_today_price(datetime.datetime.now()))
