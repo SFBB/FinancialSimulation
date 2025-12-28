@@ -93,7 +93,6 @@ class stock_info:
     def initialize(self):
         if self.__has_cache():
             try:
-                print("load cache")
                 self.__load_cache()
             except Exception as e:
                 print(e)

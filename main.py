@@ -5,13 +5,9 @@ import datetime
 if __name__ == "__main__":
     print("--- Running Simulation with 20/60 MA ---")
     sk1 = simulation_kernel(datetime.datetime(2022, 1, 1), datetime.datetime.now(), datetime.timedelta(days=1))
-    print("sdfasdf sdfsadf sdfsdfasd")
     sk1.add_strategy(AlphabetFCFStrategy(fast_ma=20, slow_ma=60))
-    print("start initializing")
     sk1.initialize()
-    print("initialized")
     sk1.run()
-    print("runed")
     sk1.end()
 
     print("\n" + "="*50 + "\n")
