@@ -159,15 +159,17 @@ class AlphabetFCFStrategy(strategy_base):
         """
         try:
             # Filter for data available before the simulation date (avoid look-ahead bias)
-            visible_data = cash_flow_df.loc[cash_flow_df['asOfDate'] < current_sim_date].sort_values(by='asOfDate', ascending=False)
-            
+            visible_data = cash_flow_df.loc[
+                cash_flow_df["asOfDate"] < current_sim_date
+            ].sort_values(by="asOfDate", ascending=False)
+
             if len(visible_data) < 2:
                 return 0.0
 
             # iloc[0] is the most recent (available) year, iloc[1] is previous
             fcf_now = visible_data.iloc[0]["FreeCashFlow"]
             fcf_prev = visible_data.iloc[1]["FreeCashFlow"]
-            
+
             if fcf_prev == 0:
                 return float("inf") if fcf_now > 0 else 0.0
             return (fcf_now - fcf_prev) / abs(fcf_prev)
@@ -191,7 +193,7 @@ class AlphabetFCFStrategy(strategy_base):
         # Technical Indicators
         fast_ma = stock_analysis.get_moving_average(close_prices, self.fast_ma)
         slow_ma = stock_analysis.get_moving_average(close_prices, self.slow_ma)
-        
+
         curr_fast = fast_ma.iloc[-1]
         curr_slow = slow_ma.iloc[-1]
 
@@ -204,7 +206,7 @@ class AlphabetFCFStrategy(strategy_base):
             # Condition B: Trend Reversal (Take Profit / Exit)
             elif curr_fast < curr_slow:
                 sell_signal = True
-            
+
             if sell_signal:
                 choices.append(
                     {
@@ -228,50 +230,16 @@ class AlphabetFCFStrategy(strategy_base):
             googl_fcf_growth = self._get_fcf_growth(googl_cash_flow, self.today_time)
             # msft_fcf_growth = self._get_fcf_growth(msft_cash_flow, self.today_time) # Benchmark no longer needed for entry
 
-            if googl_fcf_growth > 0: # Relaxed condition: Just positive growth
+            if googl_fcf_growth > 0:  # Relaxed condition: Just positive growth
                 # Timing Condition
                 if curr_fast > curr_slow:
                     # Buy 20% of current equity
                     current_equity = self.initial_money + self.changed_money
                     invest_amount = current_equity * 0.2
                     number = invest_amount / today_price
-                    
+
                     choices.append({"GOOGL": (buy_or_sell_choice.Buy, number)})
                     self.has_invested = True
                     self.purchase_price = today_price
 
         return choices
-
-    def end(self):
-        records = self.__investments_info__.get_records()
-        with open(f"records_{self.get_name()}.csv", "w", newline="") as file:
-            writer = csv.writer(file)
-            writer.writerow(
-                [
-                    "time",
-                    "price",
-                    "choice",
-                    "money_value",
-                    "number",
-                    "delta_money_value",
-                    "delta_number",
-                ]
-            )
-            for record in records:
-                writer.writerow(
-                    [
-                        record["time"],
-                        record["price"],
-                        int(record["choice"]),
-                        record["money_value"],
-                        record["number"],
-                        record["delta_money_value"],
-                        record["delta_number"],
-                    ]
-                )
-
-        self.print_performance_report()
-        # daily_returns = self.__investments_info__.get_daily_returns()
-        # if daily_returns:
-        #     sharpe_ratio = stock_analysis.get_sharpe_ratio(pd.Series(daily_returns))
-        #     print(f"Sharpe Ratio: {sharpe_ratio}")

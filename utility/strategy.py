@@ -85,12 +85,12 @@ class investment_record(ABC):
         number: float,
         total_money: float,
         total_number: float,
-        force_price: float = None,
+        force_price: float = -1.0,
     ) -> tuple[float, float]:
         if choice == buy_or_sell_choice.DoNothing:
             return 0, 0
 
-        if force_price is not None:
+        if force_price > 0.0:
             raw_price = force_price
         else:
             raw_price = extract_close_price(stock_info, date_time)
@@ -347,7 +347,7 @@ class strategy_base(ABC):
                 # Execute immediately (Close-to-Close)
                 self._execute_trade(ticket, action, amount)
 
-    def _execute_trade(self, ticket, action, amount, execution_price=None):
+    def _execute_trade(self, ticket, action, amount, execution_price: float = -1.0):
         # T+1 Validation for Sell
         if action == buy_or_sell_choice.Sell and self.market_config.settlement == "T+1":
             available = self.hold_stock_number.get(ticket, 0) - self.frozen_stock.get(
@@ -401,12 +401,44 @@ class strategy_base(ABC):
         self.promises.append(promise)
 
     @abstractmethod
+    def get_name(self) -> str:
+        return ""
+
     def end(self):
-        pass
+        self.write_invseting_records()
+        self.print_performance_report()
 
     @abstractmethod
     def make_choice(self) -> list[dict[str, tuple[buy_or_sell_choice, float]]]:
-        return {}
+        return []
+
+    def write_invseting_records(self):
+        records = self.__investments_info__.get_records()
+        with open(f"records_{self.get_name()}.csv", "w", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerow(
+                [
+                    "time",
+                    "price",
+                    "choice",
+                    "money_value",
+                    "number",
+                    "delta_money_value",
+                    "delta_number",
+                ]
+            )
+            for record in records:
+                writer.writerow(
+                    [
+                        record["time"],
+                        record["price"],
+                        int(record["choice"]),
+                        record["money_value"],
+                        record["number"],
+                        record["delta_money_value"],
+                        record["delta_number"],
+                    ]
+                )
 
     def print_performance_report(self):
         stats = self.__investments_info__.get_statistics(self.initial_money)
