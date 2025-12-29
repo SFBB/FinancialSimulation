@@ -31,6 +31,9 @@ class MoutaiStrategy(strategy_base):
     def get_name(self):
         return f"MoutaiStrategy(Momentum+RiskMgmt)"
 
+    def get_stock_source(self, stock_name: str) -> str:
+        return "akshare"
+
     def make_choice(self) -> list[dict[str, tuple[buy_or_sell_choice, float]]]:
         choices = []
         today_price = extract_close_price(

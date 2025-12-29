@@ -401,6 +401,14 @@ class strategy_base(ABC):
         self.promises.append(promise)
 
     @abstractmethod
+    def get_stock_source(self, stock_name: str) -> str:
+        """
+        Return the data source for a given stock.
+        Default is 'yahoo'. Override for 'akshare'.
+        """
+        return "yahoo"
+
+    @abstractmethod
     def get_name(self) -> str:
         return ""
 
@@ -411,6 +419,10 @@ class strategy_base(ABC):
     @abstractmethod
     def make_choice(self) -> list[dict[str, tuple[buy_or_sell_choice, float]]]:
         return []
+
+    def get_investment_records(self):
+        """Public accessor for investment records."""
+        return self.__investments_info__.get_records()
 
     def write_invseting_records(self):
         records = self.__investments_info__.get_records()
