@@ -1,4 +1,5 @@
 import datetime
+import matplotlib.pyplot as plt
 from abc import ABC, abstractmethod
 from .stock_util import (
     stock_info,
@@ -415,6 +416,46 @@ class strategy_base(ABC):
     def end(self):
         self.write_invseting_records()
         self.print_performance_report()
+        self.plot_performance()
+
+    def plot_performance(self):
+        """
+        Plots the equity curve of the strategy.
+        Can be overridden by subclasses for custom plots.
+        """
+        equity_records = self.__investments_info__.daily_equity
+        if not equity_records:
+            print("No equity records to plot.")
+            return
+
+        df = pd.DataFrame(equity_records)
+        if df.empty:
+            print("Equity records are empty.")
+            return
+            
+        df.set_index("time", inplace=True)
+        df.sort_index(inplace=True)
+
+        plt.figure(figsize=(12, 6))
+        plt.plot(df.index, df["equity"], label="Strategy Equity", linewidth=2)
+        plt.title(f"Equity Curve - {self.get_name() or self.__class__.__name__}")
+        plt.xlabel("Date")
+        plt.ylabel("Equity")
+        plt.legend()
+        plt.grid(True)
+        
+        # Format filename
+        strategy_name = self.get_name() or self.__class__.__name__
+        safe_name = "".join([c if c.isalnum() else "_" for c in strategy_name])
+        filename = f"performance_{safe_name}.png"
+        
+        try:
+            plt.savefig(filename)
+            print(f"Performance plot saved to {filename}")
+        except Exception as e:
+            print(f"Error saving plot: {e}")
+        finally:
+            plt.close()
 
     @abstractmethod
     def make_choice(self) -> list[dict[str, tuple[buy_or_sell_choice, float]]]:
