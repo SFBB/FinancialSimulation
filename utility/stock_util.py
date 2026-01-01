@@ -49,20 +49,20 @@ class stock_info:
         source: str = "yahoo",  # "yahoo" or "akshare"
     ):
         self.ticket_name = ticket_name
-        self.start_time = start_time
+        self.start_time = start_time - datetime.timedelta(
+            days=365
+        )  # Fetch extra year for safety
         self.end_time = end_time
         self.interval = interval
         self.source = source.lower()
-        self.stock = stock(ticket_name) if self.source == "yahoo" else None
+        self.stock = None  # Lazy load only when needed to fetch
         self.raw_data = pd.DataFrame()  # Original data from source
         self.history_price_data = pd.DataFrame()  # Core data for simulation
 
     def __get_cache_path(self) -> str:
-        return "cache/{}_{}_{}_{}_{}.pkl".format(
+        return "cache/{}_{}_{}.pkl".format(
             self.ticket_name,
             self.source,
-            self.start_time.strftime("%Y-%m-%d"),
-            self.end_time.strftime("%Y-%m-%d"),
             self.interval.days,
         )
 
@@ -85,7 +85,42 @@ class stock_info:
     def __update_cache(self):
         if not os.path.exists("cache"):
             os.makedirs("cache")
-        # Cache both Raw and Core
+
+        # Load existing cache to merge
+        existing_raw = pd.DataFrame()
+        existing_price = pd.DataFrame()
+        if self.__has_cache():
+            try:
+                data = pd.read_pickle(self.__get_cache_path())
+                if isinstance(data, tuple) and len(data) == 2:
+                    existing_raw, existing_price = data
+                else:
+                    existing_price = data
+            except:
+                pass
+
+        # Merge new data with existing
+        # Concat and remove duplicates based on index (Date)
+        if not self.raw_data.empty:
+            if not existing_raw.empty:
+                full_raw = pd.concat([existing_raw, self.raw_data])
+                # Deduplicate by index
+                full_raw = full_raw[~full_raw.index.duplicated(keep="last")]
+                self.raw_data = full_raw.sort_index()
+            # If existing is empty, self.raw_data is already set
+        else:
+            self.raw_data = existing_raw  # Keep existing if fetch failed
+
+        if not self.history_price_data.empty:
+            if not existing_price.empty:
+                full_price = pd.concat([existing_price, self.history_price_data])
+                full_price = full_price[~full_price.index.duplicated(keep="last")]
+                self.history_price_data = full_price.sort_index()
+            # If existing is empty, self.history_price_data is already set
+        else:
+            self.history_price_data = existing_price
+
+        # Save merged data
         if not self.history_price_data.empty:
             pd.to_pickle(
                 (self.raw_data, self.history_price_data), self.__get_cache_path()
@@ -125,17 +160,48 @@ class stock_info:
         # 2. Filter/Select Core Columns
         core_cols = ["open", "close", "high", "low", "volume"]
         available_cols = [c for c in core_cols if c in df.columns]
+        # self.history_price_data will be OVERWRITTEN here based on self.raw_data
+        # This is correct for the 'freshly fetched' part, but we need to ensure update_cache merges it.
         self.history_price_data = df[available_cols].sort_index()
 
     def initialize(self):
+        coverage_complete = False
         if self.__has_cache():
             try:
                 self.__load_cache()
+                # Check Coverage
+                if not self.history_price_data.empty:
+                    min_date = self.history_price_data.index.min().to_pydatetime()
+                    max_date = self.history_price_data.index.max().to_pydatetime()
+
+                    # We only care if we have data covering the requested range
+                    # Note: We compare Dates strictly (ignoring time for daily resolution cache)
+                    req_start = pd.Timestamp(self.start_time.date())
+                    req_end = pd.Timestamp(self.end_time.date())
+
+                    # Convert min/max from index (Timestamp) directly
+                    min_date = self.history_price_data.index.min()
+                    max_date = self.history_price_data.index.max()
+
+                    if min_date <= req_start and max_date >= (
+                        req_end - datetime.timedelta(days=4)
+                    ):
+                        coverage_complete = True
             except Exception as e:
                 print(f"Failed to load cache for {self.ticket_name}: {e}")
-                self.update()
-        else:
+                # Fallthrough to update
+
+        if not coverage_complete:
+            print(f"Cache miss or partial for {self.ticket_name}. Fetching...")
             self.update()
+
+        # Finally, slice the data to the specific requested range for this simulation instance
+        # This ensures the simulation only sees what it asked for, even if cache is huge
+        if not self.history_price_data.empty:
+            mask = (
+                self.history_price_data.index >= pd.Timestamp(self.start_time.date())
+            ) & (self.history_price_data.index <= pd.Timestamp(self.end_time.date()))
+            self.history_price_data = self.history_price_data.loc[mask]
 
     # update stock info
     def update(self):
@@ -155,6 +221,15 @@ class stock_info:
             interval = "{}d".format(self.interval.days)
         elif self.interval.seconds > 0:
             interval = "{}h".format(self.interval.seconds // 60 // 60)
+
+        # Lazy init
+        if self.stock is None:
+            try:
+                self.stock = stock(self.ticket_name)
+            except Exception as e:
+                print(f"Failed to init yahoo ticker for {self.ticket_name}: {e}")
+                self.raw_data = pd.DataFrame()
+                return
 
         if self.stock:
             try:
