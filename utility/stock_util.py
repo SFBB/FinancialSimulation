@@ -1,4 +1,5 @@
 import datetime
+from .data_source import YahooQueryDataSource, AKShareDataSource
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -59,73 +60,6 @@ class stock_info:
         self.raw_data = pd.DataFrame()  # Original data from source
         self.history_price_data = pd.DataFrame()  # Core data for simulation
 
-    def __get_cache_path(self) -> str:
-        return "cache/{}_{}_{}.pkl".format(
-            self.ticket_name,
-            self.source,
-            self.interval.days,
-        )
-
-    def __has_cache(self):
-        return os.path.exists(self.__get_cache_path())
-
-    def __load_cache(self):
-        try:
-            data = pd.read_pickle(self.__get_cache_path())
-            if isinstance(data, tuple) and len(data) == 2:
-                self.raw_data, self.history_price_data = data
-            else:
-                # Backward compatibility or fallback
-                self.history_price_data = data
-                self.raw_data = pd.DataFrame()
-                self.__normalize_data()  # Try to reconstruct if possible, or just fail over
-        except Exception:
-            self.update()
-
-    def __update_cache(self):
-        if not os.path.exists("cache"):
-            os.makedirs("cache")
-
-        # Load existing cache to merge
-        existing_raw = pd.DataFrame()
-        existing_price = pd.DataFrame()
-        if self.__has_cache():
-            try:
-                data = pd.read_pickle(self.__get_cache_path())
-                if isinstance(data, tuple) and len(data) == 2:
-                    existing_raw, existing_price = data
-                else:
-                    existing_price = data
-            except:
-                pass
-
-        # Merge new data with existing
-        # Concat and remove duplicates based on index (Date)
-        if not self.raw_data.empty:
-            if not existing_raw.empty:
-                full_raw = pd.concat([existing_raw, self.raw_data])
-                # Deduplicate by index
-                full_raw = full_raw[~full_raw.index.duplicated(keep="last")]
-                self.raw_data = full_raw.sort_index()
-            # If existing is empty, self.raw_data is already set
-        else:
-            self.raw_data = existing_raw  # Keep existing if fetch failed
-
-        if not self.history_price_data.empty:
-            if not existing_price.empty:
-                full_price = pd.concat([existing_price, self.history_price_data])
-                full_price = full_price[~full_price.index.duplicated(keep="last")]
-                self.history_price_data = full_price.sort_index()
-            # If existing is empty, self.history_price_data is already set
-        else:
-            self.history_price_data = existing_price
-
-        # Save merged data
-        if not self.history_price_data.empty:
-            pd.to_pickle(
-                (self.raw_data, self.history_price_data), self.__get_cache_path()
-            )
-
     def __normalize_data(self):
         if self.raw_data.empty:
             return
@@ -165,35 +99,20 @@ class stock_info:
         self.history_price_data = df[available_cols].sort_index()
 
     def initialize(self):
-        coverage_complete = False
-        if self.__has_cache():
-            try:
-                self.__load_cache()
-                # Check Coverage
-                if not self.history_price_data.empty:
-                    min_date = self.history_price_data.index.min().to_pydatetime()
-                    max_date = self.history_price_data.index.max().to_pydatetime()
+        if self.source == "yahoo":
+            data_source = YahooQueryDataSource(
+                self.ticket_name, self.start_time, self.end_time, self.interval
+            )
+            data_source.initialize()
+            self.raw_data = data_source.data
+        elif self.source == "akshare":
+            data_source = AKShareDataSource(
+                self.ticket_name, self.start_time, self.end_time, self.interval
+            )
+            data_source.initialize()
+            self.raw_data = data_source.data
 
-                    # We only care if we have data covering the requested range
-                    # Note: We compare Dates strictly (ignoring time for daily resolution cache)
-                    req_start = pd.Timestamp(self.start_time.date())
-                    req_end = pd.Timestamp(self.end_time.date())
-
-                    # Convert min/max from index (Timestamp) directly
-                    min_date = self.history_price_data.index.min()
-                    max_date = self.history_price_data.index.max()
-
-                    if min_date <= req_start and max_date >= (
-                        req_end - datetime.timedelta(days=4)
-                    ):
-                        coverage_complete = True
-            except Exception as e:
-                print(f"Failed to load cache for {self.ticket_name}: {e}")
-                # Fallthrough to update
-
-        if not coverage_complete:
-            print(f"Cache miss or partial for {self.ticket_name}. Fetching...")
-            self.update()
+        self.__normalize_data()
 
         # Finally, slice the data to the specific requested range for this simulation instance
         # This ensures the simulation only sees what it asked for, even if cache is huge
@@ -202,74 +121,6 @@ class stock_info:
                 self.history_price_data.index >= pd.Timestamp(self.start_time.date())
             ) & (self.history_price_data.index <= pd.Timestamp(self.end_time.date()))
             self.history_price_data = self.history_price_data.loc[mask]
-
-    # update stock info
-    def update(self):
-        if self.source == "yahoo":
-            self.__update_from_yahoo()
-        elif self.source == "akshare":
-            self.__update_from_akshare()
-        else:
-            print(f"Unknown source: {self.source}")
-
-        self.__normalize_data()
-        self.__update_cache()
-
-    def __update_from_yahoo(self):
-        interval = "1d"
-        if self.interval.days > 0:
-            interval = "{}d".format(self.interval.days)
-        elif self.interval.seconds > 0:
-            interval = "{}h".format(self.interval.seconds // 60 // 60)
-
-        # Lazy init
-        if self.stock is None:
-            try:
-                self.stock = stock(self.ticket_name)
-            except Exception as e:
-                print(f"Failed to init yahoo ticker for {self.ticket_name}: {e}")
-                self.raw_data = pd.DataFrame()
-                return
-
-        if self.stock:
-            try:
-                # Store in raw_data
-                self.raw_data = self.stock.history(
-                    "100y", interval, None, self.end_time
-                )
-            except Exception as e:
-                print(f"Yahoo fetch failed for {self.ticket_name}: {e}")
-                self.raw_data = pd.DataFrame()
-
-    def __update_from_akshare(self):
-        if ak is None:
-            print("AKShare not installed.")
-            return
-
-        # Start/End date formatting "YYYYMMDD"
-        # AKShare usually expects strings.
-        # stock_zh_a_hist: code='000001', period='daily', start_date='20170301', end_date='20210907', adjust='qfq'
-        start_str = self.start_time.strftime("%Y%m%d")
-        end_str = self.end_time.strftime("%Y%m%d")
-
-        try:
-            # Assuming ticket_name is a valid code like "000001"
-            symbol = self.ticket_name
-            # Minimal cleaning if user passed "sh600519" -> "600519"
-            if not symbol.isdigit():
-                # Simple heuristic: extract digits
-                symbol = "".join(filter(str.isdigit, symbol))
-
-            self.raw_data = ak.stock_zh_a_hist(
-                symbol=symbol,
-                period="daily",
-                start_date="19000101",  # Fetch all available history
-                end_date=end_str,
-                adjust="qfq",
-            )
-        except Exception as e:
-            print(f"AKShare fetch failed for {self.ticket_name}: {e}")
-            self.raw_data = pd.DataFrame()
 
     def get_today_price(self, current_time: datetime.datetime) -> pd.DataFrame:
         target_date = pd.Timestamp(current_time.date())
