@@ -259,31 +259,29 @@ class strategy_base(ABC):
 
         # Process Queued Orders (Next-Day Execution)
         # We execute them using TODAY'S Open Price (which is the "Next Day" relative to when the signal was generated)
-        queued_to_process = self.queued_orders.copy()
-        self.queued_orders = []  # Clear queue
-
-        for order in queued_to_process:
+        remaining_orders = []
+        for order in self.queued_orders:
             ticket = order["ticket"]
             action = order["action"]
             amount = order["amount"]
-
-            # Execute with OPEN price
-            # Note: We pass 'open_price' logic inside handle_choice by modifying it or handling it here.
-            # Ideally handle_choice should accept a price directly.
-            # I modified investment_record.handle_choice to accept force_price.
 
             if ticket in self.latest_stocks_info:
                 open_price = extract_open_price(
                     self.latest_stocks_info[ticket], self.today_time
                 )
                 if open_price is not None:
+                    # Execute and do NOT add to remaining
                     self._execute_trade(
                         ticket, action, amount, execution_price=open_price
                     )
                 else:
-                    print(
-                        f"Skipping queued order for {ticket}: No Open Price for {self.today_time}"
-                    )
+                    # Market closed (Weekend/Holiday). Keep in queue for next tick.
+                    remaining_orders.append(order)
+            else:
+                # Stock info missing, keep waiting
+                remaining_orders.append(order)
+        
+        self.queued_orders = remaining_orders
 
         # we allow strategy to re-think every tick.
         choice_list = self.make_choice()
@@ -420,8 +418,7 @@ class strategy_base(ABC):
 
     def plot_performance(self):
         """
-        Plots the equity curve of the strategy.
-        Can be overridden by subclasses for custom plots.
+        Plots the Cumulative Return (%) curve of the strategy vs SPY.
         """
         equity_records = self.__investments_info__.daily_equity
         if not equity_records:
@@ -435,12 +432,58 @@ class strategy_base(ABC):
             
         df.set_index("time", inplace=True)
         df.sort_index(inplace=True)
+        
+        # Calculate Percentage Return
+        initial_equity = df["equity"].iloc[0]
+        if initial_equity == 0: return
+        
+        df["return"] = (df["equity"] / initial_equity - 1) * 100
 
         plt.figure(figsize=(12, 6))
-        plt.plot(df.index, df["equity"], label="Strategy Equity", linewidth=2)
-        plt.title(f"Equity Curve - {self.get_name() or self.__class__.__name__}")
+        # Use Linear Scale for Percentage Return (easier to compare vs Benchmark)
+        # Or Log if growth is massive (>1000%)
+        # Let's stick to Linear for now for clarity unless huge.
+        
+        plt.plot(df.index, df["return"], label="Strategy Return (%)", linewidth=2, color='blue')
+        
+        # --- Broad Market Benchmark (SPY) Plotting ---
+        try:
+            from yahooquery import Ticker
+            spy_ticker = Ticker("SPY")
+            start_d = df.index[0]
+            end_d = df.index[-1]
+            
+            spy_hist = spy_ticker.history(start=start_d, end=end_d, interval='1d')
+            
+            if not spy_hist.empty and 'close' in spy_hist.columns:
+                if isinstance(spy_hist.index, pd.MultiIndex):
+                    spy_series = spy_hist['close'].droplevel(0)
+                else:
+                    spy_series = spy_hist['close']
+                
+                spy_series = spy_series.sort_index()
+                
+                if hasattr(spy_series.index, 'tz') and spy_series.index.tz is not None:
+                    spy_series.index = spy_series.index.tz_localize(None)
+                
+                # Reindex to match strategy
+                spy_series = spy_series.reindex(df.index, method='ffill')
+                
+                # Calculate SPY Return
+                first_valid = spy_series.first_valid_index()
+                if first_valid is not None:
+                    spy_start_price = spy_series.loc[first_valid]
+                    if spy_start_price > 0:
+                        spy_return = (spy_series / spy_start_price - 1) * 100
+                        plt.plot(spy_return.index, spy_return, label="S&P 500 (SPY)", 
+                                 color='gray', linestyle='--', linewidth=1.5, alpha=0.8)
+        except Exception as e:
+            print(f"Could not plot SPY benchmark: {e}")
+        # --------------------------
+
+        plt.title(f"Cumulative Return - {self.get_name() or self.__class__.__name__}")
         plt.xlabel("Date")
-        plt.ylabel("Equity")
+        plt.ylabel("Return (%)")
         plt.legend()
         plt.grid(True)
         
@@ -522,6 +565,101 @@ class strategy_base(ABC):
             print(f"Max Drawdown:      {stats['Max Drawdown'] * 100:.2f}%")
             print(f"Sharpe Ratio:      {stats['Sharpe Ratio']:.2f}")
             print(f"Total Trades:      {stats['Trades']}")
+            
+            # --- Baseline Comparison (Buy & Hold) ---
+            if self.stock_names and self.stock_names[0] in self.latest_stocks_info:
+                try:
+                    ticker = self.stock_names[0]
+                    stock_data = self.latest_stocks_info[ticker]
+                    # Fetch history covering the simulation period
+                    hist = stock_data.get_history_price(self.today_time)
+                    
+                    # Filter history to match simulation duration if needed, 
+                    # but usually stock data is loaded for the requested range.
+                    # We use the 'close' prices.
+                    closes = hist['close']
+                    
+                    if not closes.empty:
+                        initial_price = closes.iloc[0]
+                        final_price = closes.iloc[-1]
+                        
+                        # Buy & Hold Return
+                        bh_return = (final_price - initial_price) / initial_price
+                        
+                        # Buy & Hold Sharpe
+                        daily_rets = closes.pct_change().fillna(0)
+                        mean_ret = daily_rets.mean()
+                        std_ret = daily_rets.std()
+                        bh_sharpe = 0
+                        if std_ret > 0:
+                            bh_sharpe = (mean_ret / std_ret) * np.sqrt(252)
+
+                        # Buy & Hold Drawdown
+                        roll_max = closes.cummax()
+                        dd = (closes - roll_max) / roll_max
+                        bh_max_dd = dd.min()
+                        
+                        print(f"{'-' * 40}")
+                        print(f"Baseline ({ticker} Buy & Hold):")
+                        print(f"  Total Return:    {bh_return * 100:.2f}%")
+                        print(f"  Sharpe Ratio:    {bh_sharpe:.2f}")
+                        print(f"  Max Drawdown:    {bh_max_dd * 100:.2f}%")
+                        
+                        # Comparison
+                        excess_return = stats['Total Return'] - bh_return
+                        print(f"  Excess Return:   {excess_return * 100:.2f}%")
+                except Exception as e:
+                    print(f"Could not calculate baseline: {e}")
+
+            # --- Broad Market Benchmark (S&P 500 - SPY) ---
+            try:
+                from yahooquery import Ticker
+                spy_ticker = Ticker("SPY")
+                # Fetch SPY history for the simulation duration
+                # We use start and end dates from the stats
+                start_date = pd.to_datetime(stats['Start Date'])
+                end_date = pd.to_datetime(stats['End Date'])
+                
+                spy_hist = spy_ticker.history(start=start_date, end=end_date, interval='1d')
+                
+                if not spy_hist.empty and 'close' in spy_hist.columns:
+                    # YahooQuery returns MultiIndex (symbol, date). Reset or use XS
+                    if isinstance(spy_hist.index, pd.MultiIndex):
+                        spy_closes = spy_hist['close'].droplevel(0)
+                    else:
+                        spy_closes = spy_hist['close']
+
+                    spy_closes = spy_closes.sort_index()
+                    
+                    if not spy_closes.empty:
+                        spy_initial = spy_closes.iloc[0]
+                        spy_final = spy_closes.iloc[-1]
+                        
+                        spy_return = (spy_final - spy_initial) / spy_initial
+                        
+                        spy_rets = spy_closes.pct_change().fillna(0)
+                        spy_mean = spy_rets.mean()
+                        spy_std = spy_rets.std()
+                        spy_sharpe = 0
+                        if spy_std > 0:
+                            spy_sharpe = (spy_mean / spy_std) * np.sqrt(252)
+                            
+                        spy_roll_max = spy_closes.cummax()
+                        spy_dd = (spy_closes - spy_roll_max) / spy_roll_max
+                        spy_max_dd = spy_dd.min()
+                        
+                        print(f"{'-' * 40}")
+                        print(f"Broad Market (S&P 500 - SPY):")
+                        print(f"  Total Return:    {spy_return * 100:.2f}%")
+                        print(f"  Sharpe Ratio:    {spy_sharpe:.2f}")
+                        print(f"  Max Drawdown:    {spy_max_dd * 100:.2f}%")
+                        print(f"  Alpha (vs SPY):  {(stats['Total Return'] - spy_return) * 100:.2f}%")
+
+            except Exception as e:
+                # Silently fail or just print small error if SPY fetch fails (e.g. no internet)
+                # print(f"Could not calculate SPY benchmark: {e}")
+                pass
+
         else:
             print("No trades or insufficient data for statistics.")
         print(f"{'=' * 40}\n")

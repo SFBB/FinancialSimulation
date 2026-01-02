@@ -1,5 +1,5 @@
 import datetime
-from .data_source import YahooQueryDataSource, AKShareDataSource
+from .data_source import YahooQueryDataSource, AKShareDataSource, YahooFinanceDataSource, LocalCSVDataSource
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -51,8 +51,8 @@ class stock_info:
     ):
         self.ticket_name = ticket_name
         self.start_time = start_time - datetime.timedelta(
-            days=365
-        )  # Fetch extra year for safety
+            days=2500 # Increased to ~7 years for 5y CAGR/long-term trend
+        ) 
         self.end_time = end_time
         self.interval = interval
         self.source = source.lower()
@@ -68,14 +68,29 @@ class stock_info:
 
         # 1. Standardize Index to Datetime
         if self.source == "yahoo":
-            df = df.reset_index()
-            if "date" in df.columns:
-                df["date"] = (
-                    pd.to_datetime(df["date"], utc=True, format="mixed")
-                    .dt.tz_convert(None)
-                    .dt.normalize()
-                )
-                df = df.set_index("date")
+            # YahooFinanceDataSource now sets index name to 'date'.
+            # If loaded from cache or fresh, ensure index is DatetimeIndex.
+            
+            # Ensure columns are lowercase (yfinance uses Title Case like 'Open', 'Close')
+            df.columns = [c.lower() for c in df.columns]
+            
+            # If index is already named 'date' (from our new DataSource), we just ensure tz-naive
+            if df.index.name == "date":
+                if df.index.tz is not None:
+                    df.index = df.index.tz_convert(None).normalize()
+            else:
+                # Fallback for old cache or other sources
+                df = df.reset_index()
+                if "Date" in df.columns: # yfinance default
+                     df.rename(columns={"Date": "date"}, inplace=True)
+                
+                if "date" in df.columns:
+                    df["date"] = (
+                        pd.to_datetime(df["date"], utc=True, format="mixed")
+                        .dt.tz_convert(None)
+                        .dt.normalize()
+                    )
+                    df = df.set_index("date")
 
         elif self.source == "akshare":
             if "日期" in df.columns:
@@ -91,16 +106,17 @@ class stock_info:
             }
             df = df.rename(columns=column_map)
 
-        # 2. Filter/Select Core Columns
-        core_cols = ["open", "close", "high", "low", "volume"]
-        available_cols = [c for c in core_cols if c in df.columns]
-        # self.history_price_data will be OVERWRITTEN here based on self.raw_data
-        # This is correct for the 'freshly fetched' part, but we need to ensure update_cache merges it.
-        self.history_price_data = df[available_cols].sort_index()
+        # Core columns we expect.
+        # Modified to include PE for valuation strategies
+        core_cols = ["open", "close", "high", "low", "volume", "pe", "pe_ttm", "dividends"]
+        available_cols = [c for c in core_cols if c in df.columns] 
+        
+        self.history_price_data = df[available_cols].copy()
 
     def initialize(self):
         if self.source == "yahoo":
-            data_source = YahooQueryDataSource(
+            # Switch to YahooFinanceDataSource (yfinance) for better data support (PE)
+            data_source = YahooFinanceDataSource(
                 self.ticket_name, self.start_time, self.end_time, self.interval
             )
             data_source.initialize()
@@ -108,6 +124,15 @@ class stock_info:
         elif self.source == "akshare":
             data_source = AKShareDataSource(
                 self.ticket_name, self.start_time, self.end_time, self.interval
+            )
+            data_source.initialize()
+            self.raw_data = data_source.data
+        elif self.source == "local":
+            data_source = LocalCSVDataSource(
+                self.ticket_name, # ticket_name is file path
+                self.start_time, 
+                self.end_time, 
+                self.interval
             )
             data_source.initialize()
             self.raw_data = data_source.data
