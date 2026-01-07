@@ -57,12 +57,7 @@ class oil_info(economic_info_base):
         if self.oil_data is None or self.oil_data.data.empty:
             return None
         
-        # Handle timezone naive/aware mismatch by comparing dates
-        # Assuming daily data, we look for the record of the same date
         target_date = current_time.date()
-        
-        # Filter for the specific date
-        # Create a mask to find the row with the same date
         mask = self.oil_data.data.index.date == target_date
         df_today = self.oil_data.data[mask]
         
@@ -77,21 +72,13 @@ class oil_info(economic_info_base):
             return None
 
         start_time = current_time - time_range
-        
-        # We need to handle timezone issues for slicing
-        # If the index is tz-aware, we should ideally localize our start/end times
-        # But pandas slicing with strings or datetime objects is usually smart enough
-        # if we are careful.
-        
-        # However, to be robust against "can't compare offset-naive and offset-aware":
         tz = self.oil_data.data.index.tz
         if tz is not None:
              if start_time.tzinfo is None:
-                 start_time = start_time.replace(tzinfo=tz) # or localize
+                 start_time = start_time.replace(tzinfo=tz) 
              if current_time.tzinfo is None:
                  current_time = current_time.replace(tzinfo=tz)
 
-        # Slice
         return self.oil_data.data.loc[start_time:current_time]
 
 
@@ -135,7 +122,6 @@ class us_debt_info(economic_info_base):
             return None
 
         start_time = current_time - time_range
-        
         tz = self.debt_data.data.index.tz
         if tz is not None:
              if start_time.tzinfo is None:
@@ -144,3 +130,57 @@ class us_debt_info(economic_info_base):
                  current_time = current_time.replace(tzinfo=tz)
 
         return self.debt_data.data.loc[start_time:current_time]
+
+
+class cny_rate_info(economic_info_base):
+    """
+    USD/CNY Exchange Rate Info.
+    Ticker: CNY=X
+    Rising means CNY depreciation (Bad for A-shares).
+    Falling means CNY appreciation (Good for A-shares).
+    """
+    def __init__(
+        self,
+        start_time: datetime.datetime,
+        end_time: datetime.datetime,
+        interval: datetime.timedelta,
+    ):
+        super().__init__(start_time, end_time, interval)
+        self.cny_data = None
+
+    def initialize(self):
+        self.cny_data = YahooFinanceDataSource(
+            "CNY=X", self.start_time, self.end_time, self.interval
+        )
+        self.cny_data.initialize()
+
+    def update(self):
+        if self.cny_data:
+            self.cny_data.initialize()
+
+    def get_today_info(self, current_time: datetime.datetime):
+        if self.cny_data is None or self.cny_data.data.empty:
+            return None
+        
+        target_date = current_time.date()
+        mask = self.cny_data.data.index.date == target_date
+        df_today = self.cny_data.data[mask]
+        if not df_today.empty:
+            return df_today.iloc[0]
+        return None
+
+    def get_history_info(
+        self, current_time: datetime.datetime, time_range: datetime.timedelta
+    ):
+        if self.cny_data is None or self.cny_data.data.empty:
+            return None
+
+        start_time = current_time - time_range
+        tz = self.cny_data.data.index.tz
+        if tz is not None:
+             if start_time.tzinfo is None:
+                 start_time = start_time.replace(tzinfo=tz)
+             if current_time.tzinfo is None:
+                 current_time = current_time.replace(tzinfo=tz)
+
+        return self.cny_data.data.loc[start_time:current_time]

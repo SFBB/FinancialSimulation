@@ -33,9 +33,10 @@ class simulation_kernel:
             stock.initialize()
 
         # loading economic data
-        from .economic_util import oil_info, us_debt_info
+        from .economic_util import oil_info, us_debt_info, cny_rate_info
         self.__economics_info__["oil"] = oil_info(self.__start_time__, self.__end_time__, self.__interval__)
         self.__economics_info__["us_debt"] = us_debt_info(self.__start_time__, self.__end_time__, self.__interval__)
+        self.__economics_info__["cny"] = cny_rate_info(self.__start_time__, self.__end_time__, self.__interval__)
         
         for _, eco in self.__economics_info__.items():
             eco.initialize()

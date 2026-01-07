@@ -185,6 +185,17 @@ def extract_volume(stock_info: stock_info, date_time: datetime.datetime):
     return 0
 
 
+def extract_dividend(stock_info: stock_info, date_time: datetime.datetime):
+    if len(stock_info.get_today_price(date_time).close.values) > 0:
+        df = stock_info.get_today_price(date_time)
+        if "dividends" in df.columns:
+            val = df["dividends"].values[0]
+            # yfinance puts 0.0 if no dividend, or NaN. Handle both.
+            if pd.isna(val): return 0.0
+            return float(val)
+    return 0.0
+
+
 class promise_base(ABC):
     def __init__(
         self,

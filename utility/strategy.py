@@ -9,6 +9,7 @@ from .stock_util import (
     extract_close_price,
     extract_volume,
     extract_open_price,
+    extract_dividend,
 )
 from .economic_util import economic_info_base
 from .math_util import math_util
@@ -39,6 +40,7 @@ class MarketConfig:
     slippage_rate: float = 0.001  # 0.1% price impact/spread
     volume_limit_pct: float = 0.1  # Max 10% of daily volume allowed to trade
     execution_mode: ExecutionMode = ExecutionMode.CLOSE_TO_CLOSE
+    dividend_tax: float = 0.10  # Dividend Tax Rate
 
     @staticmethod
     def US_Market():
@@ -51,6 +53,7 @@ class MarketConfig:
             slippage_rate=0.0005,  # tighter slippage for US (0.05%)
             volume_limit_pct=0.1,
             execution_mode=ExecutionMode.CLOSE_TO_CLOSE,
+            dividend_tax=0.10 # 10% withholding for non-residents or mixed
         )
 
     @staticmethod
@@ -66,6 +69,7 @@ class MarketConfig:
             slippage_rate=0.001,  # 0.1% Slippage
             volume_limit_pct=0.1,  # Max 10% of daily volume
             execution_mode=ExecutionMode.CLOSE_TO_CLOSE,
+            dividend_tax=0.10 # 10% standard for holding > 1 month
         )
 
 
@@ -283,6 +287,20 @@ class strategy_base(ABC):
         
         self.queued_orders = remaining_orders
 
+        # --- Process Dividends ---
+        for ticket, shares in self.hold_stock_number.items():
+            if shares > 0 and ticket in self.latest_stocks_info:
+                div_per_share = extract_dividend(
+                    self.latest_stocks_info[ticket], self.today_time
+                )
+                if div_per_share > 0:
+                    gross_div = shares * div_per_share
+                    tax = gross_div * self.market_config.dividend_tax
+                    net_div = gross_div - tax
+                    self.changed_money += net_div
+                    # Optional: Log dividend
+                    # print(f"[{self.today_time.date()}] Dividend from {ticket}: ${gross_div:.2f} - Tax ${tax:.2f} = +${net_div:.2f}")
+
         # we allow strategy to re-think every tick.
         choice_list = self.make_choice()
         choice_list += self.handle_promises()
@@ -411,6 +429,14 @@ class strategy_base(ABC):
     def get_name(self) -> str:
         return ""
 
+    def get_benchmark_ticker(self) -> str:
+        """
+        Return the ticker symbol for the market benchmark.
+        Default is 'SPY' (S&P 500).
+        Override to '000300.SS' for A-Shares or '0700.HK' proxy for HK.
+        """
+        return "SPY"
+
     def end(self):
         self.write_invseting_records()
         self.print_performance_report()
@@ -446,39 +472,41 @@ class strategy_base(ABC):
         
         plt.plot(df.index, df["return"], label="Strategy Return (%)", linewidth=2, color='blue')
         
-        # --- Broad Market Benchmark (SPY) Plotting ---
+        # --- Benchmark Plotting ---
         try:
             from yahooquery import Ticker
-            spy_ticker = Ticker("SPY")
+            bench_ticker = self.get_benchmark_ticker()
+            bench_obj = Ticker(bench_ticker)
             start_d = df.index[0]
             end_d = df.index[-1]
             
-            spy_hist = spy_ticker.history(start=start_d, end=end_d, interval='1d')
+            # Fetch benchmark history
+            bench_hist = bench_obj.history(start=start_d, end=end_d, interval='1d')
             
-            if not spy_hist.empty and 'close' in spy_hist.columns:
-                if isinstance(spy_hist.index, pd.MultiIndex):
-                    spy_series = spy_hist['close'].droplevel(0)
+            if not bench_hist.empty and 'close' in bench_hist.columns:
+                if isinstance(bench_hist.index, pd.MultiIndex):
+                    bench_series = bench_hist['close'].droplevel(0)
                 else:
-                    spy_series = spy_hist['close']
+                    bench_series = bench_hist['close']
                 
-                spy_series = spy_series.sort_index()
+                bench_series = bench_series.sort_index()
                 
-                if hasattr(spy_series.index, 'tz') and spy_series.index.tz is not None:
-                    spy_series.index = spy_series.index.tz_localize(None)
+                if hasattr(bench_series.index, 'tz') and bench_series.index.tz is not None:
+                    bench_series.index = bench_series.index.tz_localize(None)
                 
                 # Reindex to match strategy
-                spy_series = spy_series.reindex(df.index, method='ffill')
+                bench_series = bench_series.reindex(df.index, method='ffill')
                 
-                # Calculate SPY Return
-                first_valid = spy_series.first_valid_index()
+                # Calculate Benchmark Return
+                first_valid = bench_series.first_valid_index()
                 if first_valid is not None:
-                    spy_start_price = spy_series.loc[first_valid]
-                    if spy_start_price > 0:
-                        spy_return = (spy_series / spy_start_price - 1) * 100
-                        plt.plot(spy_return.index, spy_return, label="S&P 500 (SPY)", 
+                    bench_start_price = bench_series.loc[first_valid]
+                    if bench_start_price > 0:
+                        bench_return = (bench_series / bench_start_price - 1) * 100
+                        plt.plot(bench_return.index, bench_return, label=f"Benchmark ({bench_ticker})", 
                                  color='gray', linestyle='--', linewidth=1.5, alpha=0.8)
         except Exception as e:
-            print(f"Could not plot SPY benchmark: {e}")
+            print(f"Could not plot benchmark: {e}")
         # --------------------------
 
         plt.title(f"Cumulative Return - {self.get_name() or self.__class__.__name__}")
@@ -611,49 +639,48 @@ class strategy_base(ABC):
                 except Exception as e:
                     print(f"Could not calculate baseline: {e}")
 
-            # --- Broad Market Benchmark (S&P 500 - SPY) ---
+            # --- Benchmark Comparison ---
             try:
                 from yahooquery import Ticker
-                spy_ticker = Ticker("SPY")
-                # Fetch SPY history for the simulation duration
-                # We use start and end dates from the stats
+                bench_ticker = self.get_benchmark_ticker()
+                bench_obj = Ticker(bench_ticker)
+                
                 start_date = pd.to_datetime(stats['Start Date'])
                 end_date = pd.to_datetime(stats['End Date'])
                 
-                spy_hist = spy_ticker.history(start=start_date, end=end_date, interval='1d')
+                bench_hist = bench_obj.history(start=start_date, end=end_date, interval='1d')
                 
-                if not spy_hist.empty and 'close' in spy_hist.columns:
-                    # YahooQuery returns MultiIndex (symbol, date). Reset or use XS
-                    if isinstance(spy_hist.index, pd.MultiIndex):
-                        spy_closes = spy_hist['close'].droplevel(0)
+                if not bench_hist.empty and 'close' in bench_hist.columns:
+                    if isinstance(bench_hist.index, pd.MultiIndex):
+                        bench_closes = bench_hist['close'].droplevel(0)
                     else:
-                        spy_closes = spy_hist['close']
+                        bench_closes = bench_hist['close']
 
-                    spy_closes = spy_closes.sort_index()
+                    bench_closes = bench_closes.sort_index()
                     
-                    if not spy_closes.empty:
-                        spy_initial = spy_closes.iloc[0]
-                        spy_final = spy_closes.iloc[-1]
+                    if not bench_closes.empty:
+                        bench_initial = bench_closes.iloc[0]
+                        bench_final = bench_closes.iloc[-1]
                         
-                        spy_return = (spy_final - spy_initial) / spy_initial
+                        bench_return = (bench_final - bench_initial) / bench_initial
                         
-                        spy_rets = spy_closes.pct_change().fillna(0)
-                        spy_mean = spy_rets.mean()
-                        spy_std = spy_rets.std()
-                        spy_sharpe = 0
-                        if spy_std > 0:
-                            spy_sharpe = (spy_mean / spy_std) * np.sqrt(252)
+                        bench_rets = bench_closes.pct_change().fillna(0)
+                        bench_mean = bench_rets.mean()
+                        bench_std = bench_rets.std()
+                        bench_sharpe = 0
+                        if bench_std > 0:
+                            bench_sharpe = (bench_mean / bench_std) * np.sqrt(252)
                             
-                        spy_roll_max = spy_closes.cummax()
-                        spy_dd = (spy_closes - spy_roll_max) / spy_roll_max
-                        spy_max_dd = spy_dd.min()
+                        bench_roll_max = bench_closes.cummax()
+                        bench_dd = (bench_closes - bench_roll_max) / bench_roll_max
+                        bench_max_dd = bench_dd.min()
                         
                         print(f"{'-' * 40}")
-                        print(f"Broad Market (S&P 500 - SPY):")
-                        print(f"  Total Return:    {spy_return * 100:.2f}%")
-                        print(f"  Sharpe Ratio:    {spy_sharpe:.2f}")
-                        print(f"  Max Drawdown:    {spy_max_dd * 100:.2f}%")
-                        print(f"  Alpha (vs SPY):  {(stats['Total Return'] - spy_return) * 100:.2f}%")
+                        print(f"Benchmark ({bench_ticker}):")
+                        print(f"  Total Return:    {bench_return * 100:.2f}%")
+                        print(f"  Sharpe Ratio:    {bench_sharpe:.2f}")
+                        print(f"  Max Drawdown:    {bench_max_dd * 100:.2f}%")
+                        print(f"  Alpha (vs Bench):{(stats['Total Return'] - bench_return) * 100:.2f}%")
 
             except Exception as e:
                 # Silently fail or just print small error if SPY fetch fails (e.g. no internet)
