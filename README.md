@@ -17,7 +17,8 @@ In real-time case, you will receive an email to notify you to do detailed operat
 - [x] Support plotting.
 - [x] Get detailed records for trading.
 - [x] Hurst exponent utility support.
-- [x] A robust caching mechanism to avoid repeatedly downloading date from yahooquery, etc.
+- [x] A robust caching mechanism to avoid repeatedly
+      downloading date from yahooquery, etc.
 - [x] ......
 
 ## How to use
@@ -51,6 +52,6 @@ Under `strategies/` there are examples about how to customize trading principles
 
 Congratulations! You can enjoy your trading right now!!!
 
-# Some examples
+## Some examples
 
 ![Apple strategy based on macro economic and FMH](./public/examples/performance_AAPL_Macro_FMH_V3_VolTarget0_35_.png)
