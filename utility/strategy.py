@@ -474,23 +474,27 @@ class strategy_base(ABC):
         
         # --- Benchmark Plotting ---
         try:
-            from yahooquery import Ticker
             bench_ticker = self.get_benchmark_ticker()
-            bench_obj = Ticker(bench_ticker)
             start_d = df.index[0]
             end_d = df.index[-1]
             
-            # Fetch benchmark history
-            bench_hist = bench_obj.history(start=start_d, end=end_d, interval='1d')
+            # Use stock_info for caching
+            bench_info = stock_info(
+                bench_ticker, 
+                start_d, 
+                end_d, 
+                datetime.timedelta(days=1), 
+                source="yahoo"
+            )
+            bench_info.initialize()
+            
+            bench_hist = bench_info.history_price_data
             
             if not bench_hist.empty and 'close' in bench_hist.columns:
-                if isinstance(bench_hist.index, pd.MultiIndex):
-                    bench_series = bench_hist['close'].droplevel(0)
-                else:
-                    bench_series = bench_hist['close']
+                bench_series = bench_hist['close'].sort_index()
                 
-                bench_series = bench_series.sort_index()
-                
+                # Timezone handling handled by stock_info normalization usually,
+                # but double check before reindex
                 if hasattr(bench_series.index, 'tz') and bench_series.index.tz is not None:
                     bench_series.index = bench_series.index.tz_localize(None)
                 
@@ -506,7 +510,7 @@ class strategy_base(ABC):
                         plt.plot(bench_return.index, bench_return, label=f"Benchmark ({bench_ticker})", 
                                  color='gray', linestyle='--', linewidth=1.5, alpha=0.8)
         except Exception as e:
-            print(f"Could not plot benchmark: {e}")
+            print(f"Could not plot benchmark {bench_ticker}: {e}")
         # --------------------------
 
         plt.title(f"Cumulative Return - {self.get_name() or self.__class__.__name__}")
